@@ -17,6 +17,21 @@ export default function Home() {
         >
           <ApiStatusCard />
         </Suspense>
+
+        <div className="mt-6 flex justify-center gap-4">
+          <a
+            href="/login"
+            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+          >
+            Masuk
+          </a>
+          <a
+            href="/dashboard"
+            className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300"
+          >
+            Dashboard
+          </a>
+        </div>
       </div>
     </main>
   );
