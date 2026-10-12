@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useGuestGuard } from "@/lib/use-guest-guard";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/kost/v1";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { status } = useGuestGuard(); // satpam sadar diri
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -27,7 +30,9 @@ export default function LoginPage() {
         setError("Nama pengguna atau kata sandi salah. Periksa lagi pelan-pelan.");
         return;
       }
-      router.push("/dashboard");
+      // PERBAIKAN #1: replace, bukan push.
+      // /login ditimpa dari riwayat -> tombol back tidak akan kembali ke form ini.
+      router.replace("/dashboard");
       router.refresh();
     } catch {
       setError("Tidak bisa menghubungi server. Periksa koneksi internet Anda.");
@@ -36,6 +41,23 @@ export default function LoginPage() {
     }
   }
 
+  // Sedang memeriksa apakah Anda sudah login -> tampilkan indikator, JANGAN flash form.
+  if (status === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="w-full max-w-md p-8 rounded-2xl bg-white border border-gray-200 shadow-lg text-center text-gray-500 animate-pulse">
+          Memeriksa sesi Anda…
+        </div>
+      </main>
+    );
+  }
+
+  // Ternyata sudah login -> sedang dilempar ke dashboard oleh penjaga. Tidak render form.
+  if (status === "authenticated") {
+    return null;
+  }
+
+  // status === "guest" -> belum login, silakan tampilkan form.
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
@@ -56,7 +78,7 @@ export default function LoginPage() {
             <input
               id="username"
               type="text"
-              autoComplete="username"
+              autoComplete="off"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -72,7 +94,7 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
