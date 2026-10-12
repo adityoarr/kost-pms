@@ -1,0 +1,47 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /kost/v1
+    session:
+      cookie:
+        name: KOSTSESSION
+        http-only: true
+        secure: true
+        same-site: none
+        path: /
+
+spring:
+  application:
+    name: kost-pms-api
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:kost_pms}
+    username: ${DB_USER:kost_app}
+    password: ${KOST_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  session:
+    store-type: redis
+    timeout: 7d
+    redis:
+      namespace: kost:session
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
