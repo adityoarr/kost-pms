@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useGuestGuard } from "@/lib/use-guest-guard";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function LoginPage() {
-  const router = useRouter();
-  const { status } = useGuestGuard(); // satpam sadar diri
+  const { status } = useGuestGuard();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -30,10 +28,9 @@ export default function LoginPage() {
         setError("Nama pengguna atau kata sandi salah. Periksa lagi pelan-pelan.");
         return;
       }
-      // PERBAIKAN #1: replace, bukan push.
-      // /login ditimpa dari riwayat -> tombol back tidak akan kembali ke form ini.
-      router.replace("/dashboard");
-      router.refresh();
+      // PERINTAH LANGSUNG KE BROWSER: buang /login dari riwayat secara total.
+      // Ini yang membuat tombol back TIDAK MUNGKIN kembali ke halaman ini.
+      window.location.replace("/dashboard");
     } catch {
       setError("Tidak bisa menghubungi server. Periksa koneksi internet Anda.");
     } finally {
@@ -41,7 +38,6 @@ export default function LoginPage() {
     }
   }
 
-  // Sedang memeriksa apakah Anda sudah login -> tampilkan indikator, JANGAN flash form.
   if (status === "loading") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
@@ -52,12 +48,10 @@ export default function LoginPage() {
     );
   }
 
-  // Ternyata sudah login -> sedang dilempar ke dashboard oleh penjaga. Tidak render form.
   if (status === "authenticated") {
     return null;
   }
 
-  // status === "guest" -> belum login, silakan tampilkan form.
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
