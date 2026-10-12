@@ -1,27 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuthGuard } from "@/lib/use-auth-guard";
 import { fetchApi } from "@/lib/api";
-
-type MeResponse = {
-  username: string;
-  roles: string[];
-};
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-
-  useEffect(() => {
-    fetchApi<MeResponse>("/auth/me")
-      .then((data) => {
-        setMe(data);
-        setState("ok");
-      })
-      .catch(() => setState("error"));
-  }, []);
+  const { me, status } = useAuthGuard();
 
   async function handleLogout() {
     try {
@@ -30,7 +15,20 @@ export default function DashboardPage() {
       // diabaikan: sesi tetap dibuang dari sisi browser
     }
     router.replace("/login");
-    router.refresh();
+  }
+
+  if (status === "loading") {
+    return (
+      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-md p-8 rounded-2xl bg-white border border-gray-200 shadow-lg text-center text-gray-500 animate-pulse">
+          Memeriksa sesi Anda…
+        </div>
+      </main>
+    );
+  }
+
+  if (status === "error" || !me) {
+    return null; // sedang di-redirect ke /login oleh hook
   }
 
   return (
@@ -39,41 +37,21 @@ export default function DashboardPage() {
         <h1 className="text-3xl font-bold text-center mb-2">Dashboard</h1>
         <p className="text-center text-gray-500 mb-8">Sistem Pengelolaan Kost</p>
 
-        {state === "loading" && (
-          <div className="p-6 rounded-xl bg-gray-100 animate-pulse text-gray-500 text-center">
-            Memeriksa sesi Anda...
+        <div className="space-y-6">
+          <div className="p-6 rounded-xl bg-green-50 border border-green-200">
+            <p className="text-lg">
+              Halo, <span className="font-semibold">{me.username}</span> 👋
+            </p>
+            <p className="mt-2 text-sm text-gray-600">Peran Anda: {me.roles.join(", ")}</p>
           </div>
-        )}
 
-        {state === "error" && (
-          <div className="p-6 rounded-xl bg-red-50 text-red-700 border border-red-200 text-center">
-            <p className="mb-4">Sesi tidak valid atau sudah berakhir.</p>
-            <button
-              onClick={() => router.replace("/login")}
-              className="px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold"
-            >
-              Masuk Lagi
-            </button>
-          </div>
-        )}
-
-        {state === "ok" && me && (
-          <div className="space-y-6">
-            <div className="p-6 rounded-xl bg-green-50 border border-green-200">
-              <p className="text-lg">
-                Halo, <span className="font-semibold">{me.username}</span> 👋
-              </p>
-              <p className="mt-2 text-sm text-gray-600">Peran Anda: {me.roles.join(", ")}</p>
-            </div>
-
-            <button
-              onClick={handleLogout}
-              className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold transition-colors"
-            >
-              Keluar
-            </button>
-          </div>
-        )}
+          <button
+            onClick={handleLogout}
+            className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold transition-colors"
+          >
+            Keluar
+          </button>
+        </div>
       </div>
     </main>
   );
