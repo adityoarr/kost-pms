@@ -22,7 +22,8 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
-                .requestMatchers("/properties/**").hasAnyRole("SUPERADMIN", "ADMIN")
+                // Properti & Units hanya untuk SUPERADMIN & ADMIN
+                .requestMatchers("/properties/**", "/units/**").hasAnyRole("SUPERADMIN", "ADMIN")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex
