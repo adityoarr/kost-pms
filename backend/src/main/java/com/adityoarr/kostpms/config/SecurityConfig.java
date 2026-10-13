@@ -2,6 +2,7 @@ package com.adityoarr.kostpms.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -22,12 +23,14 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
-                // Tenant boleh buat password & login TANPA sesi dulu:
                 .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login").permitAll()
+                // Koreksi ledger & hapus struk: SUPERADMIN saja
+                .requestMatchers(HttpMethod.POST, "/invoices/*/adjustments").hasRole("SUPERADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/payments/**").hasRole("SUPERADMIN")
                 // Manajemen (owner/admin):
-                .requestMatchers("/properties/**", "/units/**", "/tenants/**", "/leases/**")
+                .requestMatchers("/properties/**", "/units/**", "/tenants/**", "/leases/**",
+                                 "/invoices/**", "/payments/**")
                     .hasAnyRole("SUPERADMIN", "ADMIN")
-                // Selebihnya (termasuk /tenant-auth/me & /logout) wajib sesi valid:
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

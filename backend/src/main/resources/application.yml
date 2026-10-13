@@ -45,3 +45,9 @@ management:
   endpoint:
     health:
       show-details: never
+
+app:
+  billing:
+    cron: "0 1 0 1 * *"   # tiap tanggal 1 jam 00:01 Asia/Jakarta
+    due-day: 5            # jatuh tempo = tanggal 5 pada bulan periode
+    late-fee-percent: 5   # denda = 5% dari sisa tagihan saat OVERDUE
