@@ -25,16 +25,16 @@ public class SecurityConfig {
                 .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
                 .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login").permitAll()
 
-                // --- area tenant ---
                 .requestMatchers("/tenant-me/**").hasRole("TENANT")
                 .requestMatchers(HttpMethod.POST, "/tickets").hasRole("TENANT")
 
-                // --- hanya SUPERADMIN ---
+                // Rekap keuangan: hanya pemilik (SUPERADMIN + ADMIN).
+                .requestMatchers("/reports/**").hasAnyRole("SUPERADMIN", "ADMIN")
+
                 .requestMatchers("/users/**").hasRole("SUPERADMIN")
                 .requestMatchers(HttpMethod.POST, "/invoices/*/adjustments").hasRole("SUPERADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/payments/**").hasRole("SUPERADMIN")
 
-                // --- SUPERADMIN + ADMIN ---
                 .requestMatchers(HttpMethod.POST, "/invoices/*/void").hasAnyRole("SUPERADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/tenants/**").hasAnyRole("SUPERADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.POST, "/tenants/*/reset-password").hasAnyRole("SUPERADMIN", "ADMIN")
@@ -43,7 +43,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/properties/**").hasAnyRole("SUPERADMIN", "ADMIN")
                 .requestMatchers("/units/**").hasAnyRole("SUPERADMIN", "ADMIN")
 
-                // --- operasional harian: SUPERADMIN + ADMIN + STAFF ---
                 .requestMatchers(HttpMethod.POST,
                         "/tenants", "/leases",
                         "/invoices/generate", "/invoices/backfill", "/invoices/*/payments")
@@ -51,10 +50,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/tenants/**", "/leases/**")
                     .hasAnyRole("SUPERADMIN", "ADMIN", "STAFF")
 
-                // --- tiket sisi pengelola ---
                 .requestMatchers("/tickets/**").hasAnyRole("SUPERADMIN", "ADMIN", "STAFF")
 
-                // --- baca area pengelola ---
                 .requestMatchers(HttpMethod.GET,
                         "/properties/**", "/tenants/**", "/leases/**", "/invoices/**")
                     .hasAnyRole("SUPERADMIN", "ADMIN", "STAFF")
