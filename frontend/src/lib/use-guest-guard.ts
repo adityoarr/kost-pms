@@ -1,25 +1,27 @@
+// src/lib/use-guest-guard.ts
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import type { MeResponse } from "@/lib/use-auth-guard";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
+// Guard untuk halaman login (owner maupun tenant):
+// kalau sudah punya sesi, lempar ke rumah masing-masing.
 export function useGuestGuard() {
   const router = useRouter();
-  const [status, setStatus] = useState<"loading" | "authenticated" | "guest">(
-    "loading"
-  );
+  const [status, setStatus] = useState<"loading" | "authenticated" | "guest">("loading");
 
   useEffect(() => {
     let cancelled = false;
 
     const check = () => {
       fetchApi<MeResponse>("/auth/me")
-        .then(() => {
+        .then((d) => {
           if (cancelled) return;
           setStatus("authenticated");
-          router.replace("/dashboard");
+          const isTenant = d.roles.includes("ROLE_TENANT");
+          router.replace(isTenant ? "/tenant" : "/dashboard");
         })
         .catch(() => {
           if (!cancelled) setStatus("guest");
@@ -28,8 +30,6 @@ export function useGuestGuard() {
 
     check();
 
-    // Jaring pengaman: kalau browser nekat menyimpan "foto" halaman (bfcache),
-    // saat back kita paksa ganti foto form dengan spinner, lalu cek ulang sesi.
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
         setStatus("loading");

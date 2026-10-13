@@ -1,5 +1,6 @@
-import { Suspense } from "react";
+// src/app/page.tsx
 import ApiStatusCard from "@/components/api-status-card";
+import { Suspense } from "react";
 
 export default function Home() {
   return (
@@ -18,18 +19,18 @@ export default function Home() {
           <ApiStatusCard />
         </Suspense>
 
-        <div className="mt-6 flex justify-center gap-4">
+        <div className="mt-6 flex flex-col gap-3">
           <a
             href="/login"
-            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 text-center"
           >
-            Masuk
+            Masuk sebagai Pengelola
           </a>
           <a
-            href="/dashboard"
-            className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300"
+            href="/tenant/login"
+            className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 text-center"
           >
-            Dashboard
+            Masuk sebagai Penyewa
           </a>
         </div>
       </div>
