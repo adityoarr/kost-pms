@@ -24,6 +24,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
                 .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login").permitAll()
+                // Data milik sendiri, khusus sesi tenant:
+                .requestMatchers("/tenant-me/**").hasRole("TENANT")
                 // Koreksi ledger & hapus struk: SUPERADMIN saja
                 .requestMatchers(HttpMethod.POST, "/invoices/*/adjustments").hasRole("SUPERADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/payments/**").hasRole("SUPERADMIN")
