@@ -59,6 +59,12 @@ export default function PropertyFormModal({ mode, initialData, onClose, onSaved 
             return;
         }
 
+        const accDigits = accountNumber.trim().replace(/[\s-]/g, "");
+        if (accDigits && !/^\d{6,20}$/.test(accDigits)) {
+            setError("Nomor rekening hanya boleh angka (6–20 digit).");
+            return;
+        }
+
         setSubmitting(true);
         try {
             // 1) Simpan properti (POST sekali; retry pakai createdId -> PUT, tidak duplikat).
