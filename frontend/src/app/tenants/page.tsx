@@ -5,6 +5,7 @@ import TenantFormModal from "@/components/tenant-form-modal";
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
+import { isOwnerRole } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -12,13 +13,15 @@ const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function TenantsPage() {
-    const { status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard();
     const [tenants, setTenants] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<any | null>(null);
     const [successMsg, setSuccessMsg] = useState("");
+
+    const canManageTenants = !!me && isOwnerRole(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -155,13 +158,15 @@ export default function TenantsPage() {
                                             >
                                                 Edit
                                             </button>
-                                            <button
-                                                onClick={() => handleResetPassword(ten)}
-                                                className="ml-1 px-3 py-1 rounded-lg text-amber-600 hover:bg-amber-50 font-medium text-sm"
-                                            >
-                                                Reset PW
-                                            </button>
-                                            {ten.status === "ACTIVE" && (
+                                            {canManageTenants && (
+                                                <button
+                                                    onClick={() => handleResetPassword(ten)}
+                                                    className="ml-1 px-3 py-1 rounded-lg text-amber-600 hover:bg-amber-50 font-medium text-sm"
+                                                >
+                                                    Reset PW
+                                                </button>
+                                            )}
+                                            {canManageTenants && ten.status === "ACTIVE" && (
                                                 <button
                                                     onClick={() => handleArchive(ten)}
                                                     className="ml-1 px-3 py-1 rounded-lg text-red-600 hover:bg-red-50 font-medium text-sm"

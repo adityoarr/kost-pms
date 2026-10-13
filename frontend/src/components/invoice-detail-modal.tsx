@@ -13,6 +13,7 @@ const API_BASE_URL =
 type Props = {
     invoiceId: string;
     canAdjust: boolean;
+    canVoid: boolean;
     onClose: () => void;
     onChanged: (message: string) => void;
 };
@@ -27,7 +28,7 @@ function badge(eff: string) {
     }
 }
 
-export default function InvoiceDetailModal({ invoiceId, canAdjust, onClose, onChanged }: Props) {
+export default function InvoiceDetailModal({ invoiceId, canAdjust, canVoid, onClose, onChanged }: Props) {
     const [detail, setDetail] = useState<any | null>(null);
     const [loading, setLoading] = useState(true);
     const [payOpen, setPayOpen] = useState(false);
@@ -191,7 +192,7 @@ export default function InvoiceDetailModal({ invoiceId, canAdjust, onClose, onCh
                                     🛠 Adjustment
                                 </button>
                             )}
-                            {inv.status !== "VOID" && (
+                            {canVoid && inv.status !== "VOID" && (
                                 <button
                                     onClick={handleVoid}
                                     className="px-4 py-2 rounded-xl bg-red-50 text-red-600 font-semibold hover:bg-red-100 border border-red-200"

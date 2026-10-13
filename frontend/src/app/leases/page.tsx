@@ -5,6 +5,7 @@ import LeaseFormModal from "@/components/lease-form-modal";
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
 import { formatDate, formatRupiah } from "@/lib/format";
+import { isOwnerRole } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -12,12 +13,14 @@ const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function LeasesPage() {
-    const { status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard();
     const [leases, setLeases] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modalOpen, setModalOpen] = useState(false);
     const [successMsg, setSuccessMsg] = useState("");
+
+    const canCloseLease = !!me && isOwnerRole(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -138,7 +141,7 @@ export default function LeasesPage() {
                                             </span>
                                         </td>
                                         <td className="p-4 text-right whitespace-nowrap">
-                                            {l.status === "ACTIVE" && (
+                                            {canCloseLease && l.status === "ACTIVE" && (
                                                 <>
                                                     <button
                                                         onClick={() => handleClose(l, "ENDED")}

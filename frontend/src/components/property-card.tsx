@@ -1,9 +1,14 @@
 // src/components/property-card.tsx
 "use client";
 
+import { isOwnerRole } from "@/lib/roles";
+import { useAuthGuard } from "@/lib/use-auth-guard";
 import Link from "next/link";
 
 export default function PropertyCard({ property }: { property: any }) {
+    const { me } = useAuthGuard();
+    const canEdit = !!me && isOwnerRole(me.roles);
+
     return (
         <Link href={`/properties/${property.id}`} className="block group">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer">

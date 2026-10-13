@@ -1,14 +1,14 @@
 // src/app/tenant/login/page.tsx
 "use client";
 
-import { useGuestGuard } from "@/lib/use-guest-guard";
+import { useTenantGuestGuard } from "@/lib/use-tenant-guest-guard";
 import { useState } from "react";
 
 const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function TenantLoginPage() {
-    const { status } = useGuestGuard();
+    const { status } = useTenantGuestGuard();
     const [mode, setMode] = useState<"login" | "setup">("login");
     const [phone, setPhone] = useState("");
     const [password, setPassword] = useState("");

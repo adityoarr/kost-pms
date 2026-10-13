@@ -21,11 +21,17 @@ export function useTenantGuard() {
                     setStatus("ok");
                 }
             })
-            .catch(() => {
-                if (!cancelled) {
-                    setStatus("error");
-                    router.replace("/tenant/login");
+            .catch(async () => {
+                if (cancelled) return;
+                setStatus("error");
+                // Buang sesi yang inkonsisten (cookie masih ada tapi tenant sudah
+                // tidak aktif / sesi basi) supaya tidak terjadi redirect loop.
+                try {
+                    await fetchApi("/tenant-auth/logout", { method: "POST" });
+                } catch {
+                    // diabaikan: yang penting kita pindah ke form login
                 }
+                router.replace("/tenant/login");
             });
         return () => {
             cancelled = true;

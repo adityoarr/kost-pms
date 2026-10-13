@@ -5,6 +5,7 @@ import GenerateInvoicesModal from "@/components/generate-invoices-modal";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
 import { fetchApi } from "@/lib/api";
 import { formatDate, formatRupiah } from "@/lib/format";
+import { isOwnerRole, isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -43,7 +44,8 @@ export default function InvoicesPage() {
     const [genOpen, setGenOpen] = useState(false);
     const [successMsg, setSuccessMsg] = useState("");
 
-    const canAdjust = !!me && me.roles.includes("ROLE_SUPERADMIN");
+    const canAdjust = !!me && isSuperAdmin(me.roles);
+    const canVoid = !!me && isOwnerRole(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -176,6 +178,7 @@ export default function InvoicesPage() {
                 <InvoiceDetailModal
                     invoiceId={detailId}
                     canAdjust={canAdjust}
+                    canVoid={canVoid}
                     onClose={() => setDetailId(null)}
                     onChanged={(m) => {
                         setSuccessMsg(m);

@@ -4,6 +4,7 @@
 import PropertyFormModal from "@/components/property-form-modal";
 import UnitFormModal from "@/components/unit-form-modal";
 import { fetchApi } from "@/lib/api";
+import { isOwnerRole } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -36,7 +37,7 @@ function PropertyDetailContent() {
     const router = useRouter();
     const id = params.id as string;
 
-    const { status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard();
     const [property, setProperty] = useState<any | null>(null);
     const [units, setUnits] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -46,6 +47,8 @@ function PropertyDetailContent() {
     const [propModalOpen, setPropModalOpen] = useState(false);
     const [unitModalOpen, setUnitModalOpen] = useState(false);
     const [unitEditing, setUnitEditing] = useState<any | null>(null);
+
+    const canEditProperties = !!me && isOwnerRole(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -166,20 +169,22 @@ function PropertyDetailContent() {
                         <div className="flex flex-col items-start sm:items-end gap-3">
                             <span
                                 className={`px-3 py-1 rounded-full text-sm font-semibold ${property.status === "ACTIVE"
-                                        ? "bg-green-100 text-green-800"
-                                        : "bg-red-100 text-red-800"
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-red-100 text-red-800"
                                     }`}
                             >
                                 {property.status}
                             </span>
                             <div className="flex gap-2">
-                                <button
-                                    onClick={() => setPropModalOpen(true)}
-                                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors"
-                                >
-                                    ✏️ Edit
-                                </button>
-                                {property.status === "ACTIVE" && (
+                                {canEditProperties && (
+                                    <button
+                                        onClick={() => setPropModalOpen(true)}
+                                        className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors"
+                                    >
+                                        ✏️ Edit
+                                    </button>
+                                )}
+                                {canEditProperties && property.status === "ACTIVE" && (
                                     <button
                                         onClick={handleDeactivateProperty}
                                         className="px-4 py-2 rounded-lg bg-red-50 text-red-600 font-medium hover:bg-red-100 border border-red-200 transition-colors"

@@ -4,16 +4,19 @@
 import PropertyCard from "@/components/property-card";
 import PropertyFormModal from "@/components/property-form-modal";
 import { fetchApi } from "@/lib/api";
+import { isOwnerRole } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
 export default function PropertiesPage() {
-    const { status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard();
     const [properties, setProperties] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modalOpen, setModalOpen] = useState(false);
     const [successMsg, setSuccessMsg] = useState("");
+
+    const canEditProperties = !!me && isOwnerRole(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -28,7 +31,6 @@ export default function PropertiesPage() {
         if (authStatus === "ok") loadData();
     }, [authStatus]);
 
-    // Auto-hilangkan banner sukses setelah 4 detik.
     useEffect(() => {
         if (!successMsg) return;
         const t = setTimeout(() => setSuccessMsg(""), 4000);
@@ -49,15 +51,18 @@ export default function PropertiesPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">Properti Saya</h1>
+                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
+                        <h1 className="text-3xl font-bold text-gray-900 mt-1">Properti Saya</h1>
                         <p className="text-gray-500 mt-1">Kelola kost dan unit hunian Anda.</p>
                     </div>
-                    <button
-                        onClick={() => setModalOpen(true)}
-                        className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-sm"
-                    >
-                        + Tambah Properti
-                    </button>
+                    {canEditProperties && (
+                        <button
+                            onClick={() => setModalOpen(true)}
+                            className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-sm"
+                        >
+                            + Tambah Properti
+                        </button>
+                    )}
                 </div>
 
                 {successMsg && (
@@ -77,9 +82,11 @@ export default function PropertiesPage() {
                 ) : properties.length === 0 ? (
                     <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
                         <p className="text-gray-500 text-lg">Belum ada properti terdaftar.</p>
-                        <p className="text-gray-400 text-sm mt-2">
-                            Klik <span className="font-semibold">&ldquo;+ Tambah Properti&rdquo;</span> di atas untuk mulai.
-                        </p>
+                        {canEditProperties && (
+                            <p className="text-gray-400 text-sm mt-2">
+                                Klik <span className="font-semibold">&ldquo;+ Tambah Properti&rdquo;</span> di atas untuk mulai.
+                            </p>
+                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -90,7 +97,7 @@ export default function PropertiesPage() {
                 )}
             </div>
 
-            {modalOpen && (
+            {modalOpen && canEditProperties && (
                 <PropertyFormModal
                     mode="create"
                     onClose={() => setModalOpen(false)}

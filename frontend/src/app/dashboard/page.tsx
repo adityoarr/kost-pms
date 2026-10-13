@@ -1,7 +1,8 @@
-// src/app/dashboard/page.tsx
+// src/app/dashboard/page.tsx  (ganti seluruh isi)
 "use client";
 
 import { fetchApi } from "@/lib/api";
+import { isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useRouter } from "next/navigation";
 
@@ -52,6 +53,13 @@ export default function DashboardPage() {
             <a href="/tenants" className={linkCls}>👥 Penyewa</a>
             <a href="/leases" className={linkCls}>📄 Kontrak Hunian</a>
             <a href="/invoices" className={linkCls}>💰 Tagihan & Pembayaran</a>
+            <a href="/tickets" className={linkCls}>🎫 Tiket Laporan</a>
+
+            {isSuperAdmin(me.roles) && (
+              <a href="/users" className="w-full py-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-center transition-colors shadow-sm">
+                👤 Akun Pegawai
+              </a>
+            )}
           </div>
 
           <button
