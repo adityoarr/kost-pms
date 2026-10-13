@@ -28,10 +28,10 @@ public class SecurityConfig {
                 .requestMatchers("/tenant-me/**").hasRole("TENANT")
                 .requestMatchers(HttpMethod.POST, "/tickets").hasRole("TENANT")
 
-                // Rekap keuangan: hanya pemilik (SUPERADMIN + ADMIN).
                 .requestMatchers("/reports/**").hasAnyRole("SUPERADMIN", "ADMIN")
 
                 .requestMatchers("/users/**").hasRole("SUPERADMIN")
+                .requestMatchers("/audit/**").hasRole("SUPERADMIN")
                 .requestMatchers(HttpMethod.POST, "/invoices/*/adjustments").hasRole("SUPERADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/payments/**").hasRole("SUPERADMIN")
 

@@ -1,4 +1,4 @@
-// src/app/tenant/page.tsx  (ganti seluruh isi)
+// src/app/tenant/page.tsx
 "use client";
 
 import TenantInvoiceDetailModal from "@/components/tenant-invoice-detail-modal";
@@ -9,6 +9,9 @@ import { formatDate, formatRupiah } from "@/lib/format";
 import { useTenantGuard } from "@/lib/use-tenant-guard";
 import { useEffect, useState } from "react";
 
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
+
 function badge(eff: string) {
     switch (eff) {
         case "PAID": return "bg-green-100 text-green-800";
@@ -18,7 +21,6 @@ function badge(eff: string) {
         default: return "bg-blue-100 text-blue-800";
     }
 }
-
 function statusBadge(s: string) {
     switch (s) {
         case "OPEN": return "bg-blue-100 text-blue-800";
@@ -28,7 +30,6 @@ function statusBadge(s: string) {
         default: return "bg-gray-100 text-gray-800";
     }
 }
-
 function monthLabel(iso: string) {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
@@ -40,6 +41,7 @@ export default function TenantDashboardPage() {
     const [leases, setLeases] = useState<any[]>([]);
     const [invoices, setInvoices] = useState<any[]>([]);
     const [tickets, setTickets] = useState<any[]>([]);
+    const [payment, setPayment] = useState<any | null>(null);
     const [loading, setLoading] = useState(true);
     const [invoiceDetailId, setInvoiceDetailId] = useState<string | null>(null);
     const [ticketFormOpen, setTicketFormOpen] = useState(false);
@@ -51,12 +53,9 @@ export default function TenantDashboardPage() {
             fetchApi<any[]>("/tenant-me/leases"),
             fetchApi<any[]>("/tenant-me/invoices"),
             fetchApi<any[]>("/tenant-me/tickets"),
+            fetchApi<any>("/tenant-me/payment-info"),
         ])
-            .then(([l, i, t]) => {
-                setLeases(l);
-                setInvoices(i);
-                setTickets(t);
-            })
+            .then(([l, i, t, p]) => { setLeases(l); setInvoices(i); setTickets(t); setPayment(p); })
             .catch(() => { })
             .finally(() => setLoading(false));
     }, [status]);
@@ -68,47 +67,33 @@ export default function TenantDashboardPage() {
     }, [successMsg]);
 
     async function handleLogout() {
-        try {
-            await fetchApi("/tenant-auth/logout", { method: "POST" });
-        } catch {
-            // diabaikan
-        }
+        try { await fetchApi("/tenant-auth/logout", { method: "POST" }); } catch { }
         window.location.replace("/tenant/login");
     }
 
     async function handleReopen(ticket: any) {
         if (!window.confirm("Buka ulang tiket ini?")) return;
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1"}/tickets/${ticket.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
+            const res = await fetch(`${API_BASE_URL}/tickets/${ticket.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include",
                 body: JSON.stringify({ status: "OPEN" }),
             });
-            if (res.ok) {
-                setSuccessMsg("Tiket dibuka ulang ✅");
-                const fresh = await fetchApi<any[]>("/tenant-me/tickets");
-                setTickets(fresh);
-            } else {
-                alert(await readError(res));
-            }
-        } catch {
-            alert("Tidak bisa menghubungi server.");
-        }
+            if (res.ok) { setSuccessMsg("Tiket dibuka ulang ✅"); fetchApi<any[]>("/tenant-me/tickets").then(setTickets); }
+            else alert(await readError(res));
+        } catch { alert("Tidak bisa menghubungi server."); }
     }
 
     if (status === "loading") {
         return (
             <main className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-                <div className="w-full max-w-md p-8 rounded-2xl bg-white border border-gray-200 shadow-lg text-center text-gray-500 animate-pulse">
-                    Memeriksa sesi Anda…
-                </div>
+                <div className="w-full max-w-md p-8 rounded-2xl bg-white border border-gray-200 shadow-lg text-center text-gray-500 animate-pulse">Memeriksa sesi Anda…</div>
             </main>
         );
     }
     if (status === "error" || !me) return null;
 
     const activeLease = leases.find((l) => l.status === "ACTIVE");
+    const hasPayment = payment && (payment.bank || payment.accountNumber || payment.accountHolder || payment.notes);
 
     return (
         <main className="min-h-screen bg-gray-50 p-6 md:p-10">
@@ -118,17 +103,10 @@ export default function TenantDashboardPage() {
                         <h1 className="text-3xl font-bold text-gray-900">Halo, {me.name} 👋</h1>
                         <p className="text-gray-500 mt-1">Portal penyewa kost Anda.</p>
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="px-5 py-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-semibold border border-red-200"
-                    >
-                        Keluar
-                    </button>
+                    <button onClick={handleLogout} className="px-5 py-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-semibold border border-red-200">Keluar</button>
                 </div>
 
-                {successMsg && (
-                    <div className="p-4 rounded-xl bg-green-50 text-green-800 border border-green-200 font-medium">{successMsg}</div>
-                )}
+                {successMsg && (<div className="p-4 rounded-xl bg-green-50 text-green-800 border border-green-200 font-medium">{successMsg}</div>)}
 
                 {loading ? (
                     <div className="bg-white rounded-xl border border-gray-200 p-10 animate-pulse"></div>
@@ -137,19 +115,13 @@ export default function TenantDashboardPage() {
                         <section>
                             <h2 className="text-xl font-bold text-gray-900 mb-3">Kontrak Hunian Anda</h2>
                             {!activeLease ? (
-                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">
-                                    Tidak ada kontrak aktif saat ini.
-                                </div>
+                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">Tidak ada kontrak aktif saat ini.</div>
                             ) : (
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <p className="text-lg font-semibold text-gray-900">
-                                                {activeLease.propertyName} - Kamar {activeLease.unitNumber}
-                                            </p>
-                                            <p className="text-gray-600 mt-1 text-sm">
-                                                {formatDate(activeLease.startDate)} - {activeLease.endDate ? formatDate(activeLease.endDate) : "terbuka"}
-                                            </p>
+                                            <p className="text-lg font-semibold text-gray-900">{activeLease.propertyName} - Kamar {activeLease.unitNumber}</p>
+                                            <p className="text-gray-600 mt-1 text-sm">{formatDate(activeLease.startDate)} - {activeLease.endDate ? formatDate(activeLease.endDate) : "terbuka"}</p>
                                         </div>
                                         <div className="text-right">
                                             <p className="font-mono text-lg text-gray-900">{formatRupiah(activeLease.monthlyRate)}</p>
@@ -160,12 +132,41 @@ export default function TenantDashboardPage() {
                             )}
                         </section>
 
+                        {/* Kartu Cara Pembayaran (hanya saat ada kontrak aktif) */}
+                        {activeLease && (
+                            <section>
+                                <h2 className="text-xl font-bold text-gray-900 mb-3">Cara Pembayaran</h2>
+                                {!hasPayment ? (
+                                    <div className="bg-white p-6 rounded-xl border border-amber-200 text-amber-800 text-sm">
+                                        Info pembayaran belum diatur oleh pengelola. Silakan hubungi pengelola kost untuk detail pembayaran.
+                                    </div>
+                                ) : (
+                                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                                        {payment.bank && (
+                                            <PayRow label="Bank" value={payment.bank} />
+                                        )}
+                                        {payment.accountNumber && (
+                                            <PayRow label="No. Rekening" value={payment.accountNumber} mono />
+                                        )}
+                                        {payment.accountHolder && (
+                                            <PayRow label="Atas Nama" value={payment.accountHolder} />
+                                        )}
+                                        {payment.notes && (
+                                            <div className="pt-1">
+                                                <p className="text-xs text-gray-500 mb-1">Instruksi</p>
+                                                <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded-xl p-3">{payment.notes}</p>
+                                            </div>
+                                        )}
+                                        <p className="text-xs text-gray-400 pt-1">Selesai transfer, konfirmasi ke pengelola. Pembayaran baru tercatat setelah diverifikasi.</p>
+                                    </div>
+                                )}
+                            </section>
+                        )}
+
                         <section>
                             <h2 className="text-xl font-bold text-gray-900 mb-3">Tagihan Saya</h2>
                             {invoices.length === 0 ? (
-                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">
-                                    Belum ada tagihan.
-                                </div>
+                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">Belum ada tagihan.</div>
                             ) : (
                                 <div className="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
                                     <table className="w-full text-left border-collapse">
@@ -184,73 +185,39 @@ export default function TenantDashboardPage() {
                                                     <td className="p-4 font-medium text-gray-900">{monthLabel(inv.periodStart)}</td>
                                                     <td className="p-4 text-gray-600 text-sm">{formatDate(inv.dueDate)}</td>
                                                     <td className="p-4 text-right font-mono text-gray-900">{formatRupiah(inv.totalDue)}</td>
-                                                    <td className="p-4">
-                                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(inv.effectiveStatus)}`}>
-                                                            {inv.effectiveStatus}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-4 text-right">
-                                                        <button
-                                                            onClick={() => setInvoiceDetailId(inv.id)}
-                                                            className="px-3 py-1 rounded-lg text-blue-600 hover:bg-blue-50 font-medium text-sm"
-                                                        >
-                                                            Lihat
-                                                        </button>
-                                                    </td>
+                                                    <td className="p-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(inv.effectiveStatus)}`}>{inv.effectiveStatus}</span></td>
+                                                    <td className="p-4 text-right"><button onClick={() => setInvoiceDetailId(inv.id)} className="px-3 py-1 rounded-lg text-blue-600 hover:bg-blue-50 font-medium text-sm">Lihat</button></td>
                                                 </tr>
                                             ))}
                                         </tbody>
                                     </table>
                                 </div>
                             )}
-                            <p className="mt-3 text-xs text-gray-400">
-                                Pembayaran dilakukan kepada pengelola kost. Struk muncul setelah pembayaran diverifikasi.
-                            </p>
                         </section>
 
                         <section>
                             <div className="flex justify-between items-center mb-3">
                                 <h2 className="text-xl font-bold text-gray-900">Laporan Saya</h2>
                                 {activeLease && (
-                                    <button
-                                        onClick={() => setTicketFormOpen(true)}
-                                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold"
-                                    >
-                                        🛠 Lapor Masalah
-                                    </button>
+                                    <button onClick={() => setTicketFormOpen(true)} className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold">🛠 Lapor Masalah</button>
                                 )}
                             </div>
                             {tickets.length === 0 ? (
-                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">
-                                    Belum ada laporan. Klik "Lapor Masalah" jika ada yang perlu diperbaiki.
-                                </div>
+                                <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">Belum ada laporan. Klik "Lapor Masalah" jika ada yang perlu diperbaiki.</div>
                             ) : (
                                 <div className="space-y-2">
                                     {tickets.map((t) => (
                                         <div key={t.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-start gap-4">
                                             <div className="flex-1">
                                                 <p className="font-semibold text-gray-900">{t.title}</p>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    {t.category} • Kamar {t.unitNumber} • {formatDate(t.createdAt)}
-                                                </p>
+                                                <p className="text-xs text-gray-500 mt-1">{t.category} • Kamar {t.unitNumber} • {formatDate(t.createdAt)}</p>
                                                 {t.status === "RESOLVED" && t.resolutionNote && (
-                                                    <p className="text-sm text-gray-700 mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
-                                                        <span className="font-semibold">Resolusi:</span> {t.resolutionNote}
-                                                    </p>
+                                                    <p className="text-sm text-gray-700 mt-2 p-2 bg-green-50 rounded-lg border border-green-200"><span className="font-semibold">Resolusi:</span> {t.resolutionNote}</p>
                                                 )}
                                             </div>
                                             <div className="flex flex-col items-end gap-1">
-                                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(t.status)}`}>
-                                                    {t.status}
-                                                </span>
-                                                {t.status === "RESOLVED" && (
-                                                    <button
-                                                        onClick={() => handleReopen(t)}
-                                                        className="text-xs text-blue-600 hover:underline"
-                                                    >
-                                                        Buka ulang
-                                                    </button>
-                                                )}
+                                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(t.status)}`}>{t.status}</span>
+                                                {t.status === "RESOLVED" && (<button onClick={() => handleReopen(t)} className="text-xs text-blue-600 hover:underline">Buka ulang</button>)}
                                             </div>
                                         </div>
                                     ))}
@@ -263,14 +230,17 @@ export default function TenantDashboardPage() {
 
             {invoiceDetailId && <TenantInvoiceDetailModal invoiceId={invoiceDetailId} onClose={() => setInvoiceDetailId(null)} />}
             {ticketFormOpen && (
-                <TenantTicketFormModal
-                    onClose={() => setTicketFormOpen(false)}
-                    onSaved={(m) => {
-                        setSuccessMsg(m);
-                        fetchApi<any[]>("/tenant-me/tickets").then(setTickets);
-                    }}
-                />
+                <TenantTicketFormModal onClose={() => setTicketFormOpen(false)} onSaved={(m) => { setSuccessMsg(m); fetchApi<any[]>("/tenant-me/tickets").then(setTickets); }} />
             )}
         </main>
+    );
+}
+
+function PayRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+    return (
+        <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-500">{label}</span>
+            <span className={`text-base font-semibold text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</span>
+        </div>
     );
 }

@@ -1,6 +1,7 @@
 // src/app/users/page.tsx
 "use client";
 
+import { Pagination, SearchBox, useListControls } from "@/components/list-controls";
 import UserFormModal from "@/components/user-form-modal";
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
@@ -20,6 +21,11 @@ export default function UsersPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [successMsg, setSuccessMsg] = useState("");
 
+    const { query, setQuery, page, setPage, pageCount, total, view } = useListControls(users, {
+        searchKeys: ["username", "fullName"],
+        pageSize: 10,
+    });
+
     function loadData() {
         setLoading(true);
         setError("");
@@ -29,10 +35,7 @@ export default function UsersPage() {
             .finally(() => setLoading(false));
     }
 
-    useEffect(() => {
-        if (authStatus === "ok") loadData();
-    }, [authStatus]);
-
+    useEffect(() => { if (authStatus === "ok") loadData(); }, [authStatus]);
     useEffect(() => {
         if (!successMsg) return;
         const t = setTimeout(() => setSuccessMsg(""), 4000);
@@ -63,10 +66,7 @@ export default function UsersPage() {
         }
         if (!window.confirm(`Nonaktifkan akun ${u.username}?\nMereka tidak bisa login lagi.`)) return;
         try {
-            const res = await fetch(`${API_BASE_URL}/users/${u.id}`, {
-                method: "DELETE",
-                credentials: "include",
-            });
+            const res = await fetch(`${API_BASE_URL}/users/${u.id}`, { method: "DELETE", credentials: "include" });
             if (res.ok) {
                 setSuccessMsg(`Akun ${u.username} dinonaktifkan`);
                 loadData();
@@ -100,7 +100,7 @@ export default function UsersPage() {
     return (
         <main className="min-h-screen bg-gray-50 p-6 md:p-10">
             <div className="max-w-5xl mx-auto">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
                         <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Akun Pegawai</h1>
@@ -118,70 +118,83 @@ export default function UsersPage() {
                     <div className="mb-6 p-4 rounded-xl bg-green-50 text-green-800 border border-green-200 font-medium">{successMsg}</div>
                 )}
 
+                <div className="mb-4">
+                    <SearchBox value={query} onChange={setQuery} placeholder="Cari username / nama…" />
+                </div>
+
                 {loading ? (
                     <div className="bg-white rounded-xl border border-gray-200 p-10 animate-pulse"></div>
                 ) : error ? (
                     <div className="p-4 bg-red-50 text-red-700 rounded-lg">{error}</div>
-                ) : (
-                    <div className="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50 text-gray-600 text-sm uppercase tracking-wider">
-                                    <th className="p-4 font-semibold">Username</th>
-                                    <th className="p-4 font-semibold">Nama</th>
-                                    <th className="p-4 font-semibold">Role</th>
-                                    <th className="p-4 font-semibold">Status</th>
-                                    <th className="p-4 font-semibold">Dibuat</th>
-                                    <th className="p-4 font-semibold text-right">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {users.map((u) => (
-                                    <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="p-4 font-medium text-gray-900 font-mono">{u.username}</td>
-                                        <td className="p-4 text-gray-700">{u.fullName}</td>
-                                        <td className="p-4">
-                                            <span
-                                                className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${u.role === "SUPERADMIN"
-                                                        ? "bg-purple-100 text-purple-800"
-                                                        : u.role === "ADMIN"
-                                                            ? "bg-blue-100 text-blue-800"
-                                                            : "bg-gray-200 text-gray-700"
-                                                    }`}
-                                            >
-                                                {u.role}
-                                            </span>
-                                        </td>
-                                        <td className="p-4">
-                                            <span
-                                                className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${u.status === "ACTIVE" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                                                    }`}
-                                            >
-                                                {u.status}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-gray-500 text-sm">{formatDate(u.createdAt)}</td>
-                                        <td className="p-4 text-right whitespace-nowrap">
-                                            <button
-                                                onClick={() => handleResetPassword(u)}
-                                                className="px-3 py-1 rounded-lg text-amber-600 hover:bg-amber-50 font-medium text-sm"
-                                            >
-                                                Reset PW
-                                            </button>
-                                            {u.status === "ACTIVE" && u.username !== me?.username && (
-                                                <button
-                                                    onClick={() => handleDeactivate(u)}
-                                                    className="ml-1 px-3 py-1 rounded-lg text-red-600 hover:bg-red-50 font-medium text-sm"
-                                                >
-                                                    Nonaktifkan
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                ) : users.length === 0 ? (
+                    <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
+                        <p className="text-gray-500 text-lg">Belum ada akun pegawai.</p>
                     </div>
+                ) : (
+                    <>
+                        <div className="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-gray-200 bg-gray-50 text-gray-600 text-sm uppercase tracking-wider">
+                                        <th className="p-4 font-semibold">Username</th>
+                                        <th className="p-4 font-semibold">Nama</th>
+                                        <th className="p-4 font-semibold">Role</th>
+                                        <th className="p-4 font-semibold">Status</th>
+                                        <th className="p-4 font-semibold">Dibuat</th>
+                                        <th className="p-4 font-semibold text-right">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {view.length === 0 ? (
+                                        <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada hasil untuk &ldquo;{query}&rdquo;.</td></tr>
+                                    ) : view.map((u) => (
+                                        <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4 font-medium text-gray-900 font-mono">{u.username}</td>
+                                            <td className="p-4 text-gray-700">{u.fullName}</td>
+                                            <td className="p-4">
+                                                <span
+                                                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${u.role === "SUPERADMIN" ? "bg-purple-100 text-purple-800"
+                                                            : u.role === "ADMIN" ? "bg-blue-100 text-blue-800"
+                                                                : "bg-gray-200 text-gray-700"
+                                                        }`}
+                                                >
+                                                    {u.role}
+                                                </span>
+                                            </td>
+                                            <td className="p-4">
+                                                <span
+                                                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${u.status === "ACTIVE" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                                        }`}
+                                                >
+                                                    {u.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-gray-500 text-sm">{formatDate(u.createdAt)}</td>
+                                            <td className="p-4 text-right whitespace-nowrap">
+                                                <button
+                                                    onClick={() => handleResetPassword(u)}
+                                                    className="px-3 py-1 rounded-lg text-amber-600 hover:bg-amber-50 font-medium text-sm"
+                                                >
+                                                    Reset PW
+                                                </button>
+                                                {u.status === "ACTIVE" && u.username !== me?.username && (
+                                                    <button
+                                                        onClick={() => handleDeactivate(u)}
+                                                        className="ml-1 px-3 py-1 rounded-lg text-red-600 hover:bg-red-50 font-medium text-sm"
+                                                    >
+                                                        Nonaktifkan
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <Pagination page={page} pageCount={pageCount} onChange={setPage} total={total} />
+                        </div>
+                    </>
                 )}
             </div>
 

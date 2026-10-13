@@ -1,6 +1,7 @@
 // src/app/properties/page.tsx
 "use client";
 
+import { Pagination, SearchBox, useListControls } from "@/components/list-controls";
 import PropertyCard from "@/components/property-card";
 import PropertyFormModal from "@/components/property-form-modal";
 import { fetchApi } from "@/lib/api";
@@ -17,6 +18,10 @@ export default function PropertiesPage() {
     const [successMsg, setSuccessMsg] = useState("");
 
     const canEditProperties = !!me && isOwnerRole(me.roles);
+    const { query, setQuery, page, setPage, pageCount, total, view } = useListControls(properties, {
+        searchKeys: ["name", "address", "city"],
+        pageSize: 9,
+    });
 
     function loadData() {
         setLoading(true);
@@ -27,10 +32,7 @@ export default function PropertiesPage() {
             .finally(() => setLoading(false));
     }
 
-    useEffect(() => {
-        if (authStatus === "ok") loadData();
-    }, [authStatus]);
-
+    useEffect(() => { if (authStatus === "ok") loadData(); }, [authStatus]);
     useEffect(() => {
         if (!successMsg) return;
         const t = setTimeout(() => setSuccessMsg(""), 4000);
@@ -49,7 +51,7 @@ export default function PropertiesPage() {
     return (
         <main className="min-h-screen bg-gray-50 p-6 md:p-10">
             <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
                         <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Properti Saya</h1>
@@ -71,6 +73,10 @@ export default function PropertiesPage() {
                     </div>
                 )}
 
+                <div className="mb-4">
+                    <SearchBox value={query} onChange={setQuery} placeholder="Cari nama / alamat / kota…" />
+                </div>
+
                 {loading ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {[1, 2, 3].map((i) => (
@@ -89,11 +95,22 @@ export default function PropertiesPage() {
                         )}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {properties.map((prop) => (
-                            <PropertyCard key={prop.id} property={prop} />
-                        ))}
-                    </div>
+                    <>
+                        {view.length === 0 ? (
+                            <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
+                                <p className="text-gray-500 text-lg">Tidak ada hasil untuk &ldquo;{query}&rdquo;.</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {view.map((prop) => (
+                                    <PropertyCard key={prop.id} property={prop} />
+                                ))}
+                            </div>
+                        )}
+                        <div className="mt-6 flex justify-end">
+                            <Pagination page={page} pageCount={pageCount} onChange={setPage} total={total} />
+                        </div>
+                    </>
                 )}
             </div>
 
