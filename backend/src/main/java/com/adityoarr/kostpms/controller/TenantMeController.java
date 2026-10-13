@@ -3,8 +3,10 @@ package com.adityoarr.kostpms.controller;
 import com.adityoarr.kostpms.dto.InvoiceDetailResponse;
 import com.adityoarr.kostpms.dto.InvoiceResponse;
 import com.adityoarr.kostpms.dto.LeaseResponse;
+import com.adityoarr.kostpms.dto.TicketResponse;
 import com.adityoarr.kostpms.service.InvoiceService;
 import com.adityoarr.kostpms.service.LeaseService;
+import com.adityoarr.kostpms.service.TicketService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -24,10 +26,14 @@ public class TenantMeController {
 
     private final LeaseService leaseService;
     private final InvoiceService invoiceService;
+    private final TicketService ticketService;
 
-    public TenantMeController(LeaseService leaseService, InvoiceService invoiceService) {
+    public TenantMeController(LeaseService leaseService,
+                              InvoiceService invoiceService,
+                              TicketService ticketService) {
         this.leaseService = leaseService;
         this.invoiceService = invoiceService;
+        this.ticketService = ticketService;
     }
 
     private String currentTenantId() {
@@ -63,5 +69,10 @@ public class TenantMeController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(d);
+    }
+
+    @GetMapping("/tickets")
+    public List<TicketResponse> tickets() {
+        return ticketService.findByTenant(UUID.fromString(currentTenantId()));
     }
 }
