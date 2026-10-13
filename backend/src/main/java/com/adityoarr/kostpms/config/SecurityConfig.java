@@ -22,8 +22,12 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
-                // Properti & Units hanya untuk SUPERADMIN & ADMIN
-                .requestMatchers("/properties/**", "/units/**").hasAnyRole("SUPERADMIN", "ADMIN")
+                // Tenant boleh buat password & login TANPA sesi dulu:
+                .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login").permitAll()
+                // Manajemen (owner/admin):
+                .requestMatchers("/properties/**", "/units/**", "/tenants/**", "/leases/**")
+                    .hasAnyRole("SUPERADMIN", "ADMIN")
+                // Selebihnya (termasuk /tenant-auth/me & /logout) wajib sesi valid:
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex
