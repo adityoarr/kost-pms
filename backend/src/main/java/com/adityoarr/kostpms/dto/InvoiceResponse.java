@@ -16,12 +16,12 @@ public record InvoiceResponse(
         long baseAmount,
         long discount,
         int lateFeeRatePercent,
-        String status,            // status tersimpan: OPEN|PARTIALLY_PAID|PAID|VOID
-        String effectiveStatus,   // diturunkan saat dibaca: + OVERDUE bila lewat jatuh tempo
-        long paidAmount,
-        long remaining,
-        long lateFee,
-        long totalDue,
+        String status,            // tersimpan: OPEN|PARTIALLY_PAID|PAID|VOID
+        String effectiveStatus,   // diturunkan (+OVERDUE bila lewat jatuh tempo)
+        long paidAmount,          // total tercatat (pokok+denda)
+        long principalRemaining,  // sisa pokok (belum termasuk denda)
+        long feeAmount,           // denda TURUNAN dari principalRemaining
+        long totalDue,            // principalRemaining + feeAmount = batas catat
         String voidReason,
         String createdByUsername,
         OffsetDateTime createdAt

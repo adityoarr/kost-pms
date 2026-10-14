@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,20 +46,21 @@ public class InvoiceService {
             "JOIN units u ON l.unit_id = u.id " +
             "JOIN properties p ON u.property_id = p.id ";
 
+    // Anonymous inner class (BUKAN lambda di field-initializer):
+    // mapRow() dipanggil setelah objek selesai dibangun, jadi akses this.paymentService aman.
+    // Ini persis pola yang compile sukses di 6.7a.
     private final RowMapper<InvoiceResponse> invoiceMapper = new RowMapper<InvoiceResponse>() {
         @Override
         public InvoiceResponse mapRow(ResultSet rs, int rowNum) throws SQLException {
             UUID id = UUID.fromString(rs.getString("id"));
-            long paidNet = paymentService.sumPaid(id);
             long base = rs.getLong("base_amount");
-            long discount = rs.getLong("discount");
+            long disc = rs.getLong("discount");
             int rate = rs.getInt("late_fee_rate_percent");
             LocalDate due = rs.getObject("due_date", LocalDate.class);
             String stored = rs.getString("status");
+            // Reuse Breakdown -> TIDAK ada rumus denda kedua di sini.
+            PaymentService.Breakdown b = paymentService.breakdownOf(id);
             String eff = effectiveStatus(stored, due);
-            long net = base - discount;
-            long remaining = Math.max(0L, net - paidNet);
-            long lateFee = "OVERDUE".equals(eff) ? Math.round(remaining * rate / 100.0) : 0L;
             return new InvoiceResponse(
                     id.toString(),
                     rs.getString("lease_id"),
@@ -69,9 +71,12 @@ public class InvoiceService {
                     rs.getObject("period_start", LocalDate.class),
                     rs.getObject("period_end", LocalDate.class),
                     due,
-                    base, discount, rate,
+                    base, disc, rate,
                     stored, eff,
-                    paidNet, remaining, lateFee, remaining + lateFee,
+                    b.paidTotal,
+                    b.principalRemaining,
+                    b.feeAmount,
+                    b.totalDue,
                     rs.getString("void_reason"),
                     rs.getString("created_by_username"),
                     rs.getObject("created_at", OffsetDateTime.class)
@@ -79,17 +84,14 @@ public class InvoiceService {
         }
     };
 
-    // ---- generate tagihan untuk satu periode bulan (idempoten via unique lease+period) ----
     public Map<String, Object> generate(YearMonth period, String username) {
         LocalDate start = period.atDay(1);
         LocalDate end = period.atEndOfMonth();
         LocalDate due = period.atDay(Math.min(dueDay, period.lengthOfMonth()));
-
         List<Map<String, Object>> leases = jdbc.queryForList(
                 "SELECT l.id, l.monthly_rate FROM leases l " +
                 "WHERE l.status = 'ACTIVE' AND l.start_date <= ? AND (l.end_date IS NULL OR l.end_date >= ?)",
                 end, start);
-
         int created = 0, skipped = 0;
         for (Map<String, Object> lease : leases) {
             Object leaseId = lease.get("id");
@@ -142,7 +144,7 @@ public class InvoiceService {
     }
 
     private String effectiveStatus(String stored, LocalDate due) {
-        if (("OPEN".equals(stored) || "PARTIALLY_PAID".equals(stored)) && due.isBefore(LocalDate.now())) {
+        if (("OPEN".equals(stored) || "PARTIALLY_PAID".equals(stored)) && due != null && due.isBefore(LocalDate.now(ZoneId.of("Asia/Jakarta")))) {
             return "OVERDUE";
         }
         return stored;

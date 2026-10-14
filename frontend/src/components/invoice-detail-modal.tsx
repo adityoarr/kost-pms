@@ -113,14 +113,17 @@ export default function InvoiceDetailModal({ invoiceId, canAdjust, canVoid, onCl
                             <Info label="Jatuh Tempo" value={formatDate(inv.dueDate)} />
                             <Info label="Tarif Dasar" value={formatRupiah(inv.baseAmount)} />
                             <Info label="Diskon" value={formatRupiah(inv.discount)} />
-                            <Info label="Terbayang" value={formatRupiah(inv.paidAmount)} />
-                            <Info label="Sisa Pokok" value={formatRupiah(inv.remaining)} />
-                            <Info label="Denda (informatif)" value={formatRupiah(inv.lateFee)} />
-                            <Info label="Total Seharusnya" value={formatRupiah(inv.totalDue)} />
+                            <Info label="Terbayar (pokok+denda)" value={formatRupiah(inv.paidAmount)} />
+                            <Info label="Sisa Pokok" value={formatRupiah(inv.principalRemaining ?? inv.remaining)} />
+                            <Info label="Denda Berjalan" value={(inv.feeAmount ?? 0) > 0 ? formatRupiah(inv.feeAmount) : "-"} />
+                            <Info label="Total Harus Dibayar" value={formatRupiah(inv.totalDue ?? inv.remaining)} />
                             <div className="col-span-2">
                                 <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full ${badge(inv.effectiveStatus)}`}>
                                     {inv.effectiveStatus}
                                 </span>
+                                {(inv.feeAmount ?? 0) > 0 && inv.effectiveStatus !== "PAID" && (
+                                    <p className="mt-2 text-xs text-red-600">Termasuk denda keterlambatan {formatRupiah(inv.feeAmount)}.</p>
+                                )}
                                 {inv.status === "VOID" && inv.voidReason && (
                                     <p className="mt-2 text-xs text-gray-500">Alasan batal: {inv.voidReason}</p>
                                 )}

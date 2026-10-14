@@ -19,6 +19,8 @@ type Row = {
     remaining: number;
     lateFee: number;
     effectiveStatus: string;
+    principalRemaining: number;
+    feeAmount: number;
 };
 
 type PeriodReport = {
@@ -64,9 +66,9 @@ function buildCsv(rep: PeriodReport): string {
     lines.push(`Telat ( nominal sisa),${rep.overdueAmount}`);
     lines.push(`Outstanding akhir periode,${rep.outstandingEnd}`);
     lines.push("");
-    lines.push(["Penyewa", "No.HP", "Kamar", "Properti", "Ditagih", "Diskon", "Terbayar", "Sisa", "Denda", "Status"].map(q).join(","));
+    lines.push(["Penyewa", "No.HP", "Kamar", "Properti", "Ditagih", "Diskon", "Terbayar", "Sisa Pokok", "Denda", "Total Due", "Status"].map(q).join(","));
     for (const r of rep.rows) {
-        lines.push([r.tenantName, r.tenantPhone, r.unitNumber, r.propertyName, r.baseAmount, r.discount, r.paidAmount, r.remaining, r.lateFee, r.effectiveStatus].map(q).join(","));
+        lines.push([r.tenantName, r.tenantPhone, r.unitNumber, r.propertyName, r.baseAmount, r.discount, r.paidAmount, r.principalRemaining ?? r.remaining, r.lateFee, (r.principalRemaining ?? r.remaining) + (r.lateFee || 0), r.effectiveStatus].map(q).join(","));
     }
     return "\uFEFF" + lines.join("\r\n");
 }
@@ -85,10 +87,15 @@ function downloadCsv(rep: PeriodReport) {
 
 export default function ReportsPage() {
     const { me, status: authStatus } = useAuthGuard();
-    const [month, setMonth] = useState(currentMonth());
+    const [month, setMonth] = useState<string>("");
     const [report, setReport] = useState<PeriodReport | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+
+    // Default bulan diisi setelah mount agar prerender tidak pernah melihat new Date().
+    useEffect(() => {
+        setMonth(currentMonth());
+    }, []);
 
     const allowed = !!me && isOwnerRole(me.roles);
 
@@ -102,9 +109,9 @@ export default function ReportsPage() {
     }
 
     useEffect(() => {
-        if (authStatus === "ok" && allowed) load(month);
+        if (authStatus === "ok" && allowed && month) load(month);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [authStatus, allowed]);
+    }, [authStatus, allowed, month]);
 
     if (authStatus === "loading") {
         return (
@@ -214,7 +221,7 @@ export default function ReportsPage() {
                                                 <td className="p-3 text-gray-500">{r.propertyName}</td>
                                                 <td className="p-3 text-right font-mono">{formatRupiah(r.baseAmount - r.discount)}</td>
                                                 <td className="p-3 text-right font-mono text-gray-600">{formatRupiah(r.paidAmount)}</td>
-                                                <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(r.remaining)}</td>
+                                                <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(r.principalRemaining ?? r.remaining)}</td>
                                                 <td className="p-3 text-right font-mono text-red-600">{r.lateFee > 0 ? formatRupiah(r.lateFee) : "-"}</td>
                                                 <td className="p-3">
                                                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(r.effectiveStatus)}`}>

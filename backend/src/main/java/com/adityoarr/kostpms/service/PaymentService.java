@@ -7,7 +7,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +20,7 @@ import java.util.UUID;
 public class PaymentService {
 
     private static final Set<String> METHODS = Set.of("CASH", "TRANSFER", "OTHER");
+    private static final ZoneId JAKARTA = ZoneId.of("Asia/Jakarta");
 
     private final JdbcTemplate jdbc;
 
@@ -51,20 +54,49 @@ public class PaymentService {
                 paymentMapper, invoiceId);
     }
 
+    // ---- sumber kebenaran tunggal perhitungan pokok/denda ----
+    // Dipakai oleh PaymentService (validasi) DAN InvoiceService (respons).
+    // Denda SELALU turunan dari sisa pokok SETELAH pembayaran -> tidak ada state denda untuk dirusak.
+    public static class Breakdown {
+        public final long netPrincipal;     // base - discount
+        public final long paidTotal;        // seluruh struk (termasuk adjustment negatif)
+        public final long principalPaid;    // min(paidTotal, netPrincipal)
+        public final long feePaid;          // max(0, paidTotal - netPrincipal)
+        public final long principalRemaining;
+        public final long feeAmount;        // turunan dari principalRemaining
+        public final long totalDue;         // principalRemaining + feeAmount
+        public Breakdown(long netPrincipal, long paidTotal, long feeRatePercent, LocalDate dueDate) {
+            this.netPrincipal = netPrincipal;
+            this.paidTotal = paidTotal;
+            this.principalPaid = Math.min(Math.max(paidTotal, 0L), netPrincipal);
+            this.feePaid = Math.max(0L, paidTotal - netPrincipal);
+            this.principalRemaining = Math.max(0L, netPrincipal - paidTotal);
+            boolean overdue = dueDate != null && dueDate.isBefore(LocalDate.now(JAKARTA));
+            this.feeAmount = overdue ? Math.round(this.principalRemaining * feeRatePercent / 100.0) : 0L;
+            this.totalDue = this.principalRemaining + this.feeAmount;
+        }
+    }
+
+    public Breakdown breakdownOf(UUID invoiceId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT base_amount, discount, late_fee_rate_percent, due_date, status FROM invoices WHERE id = ?",
+                invoiceId);
+        if (rows.isEmpty()) throw new IllegalArgumentException("Tagihan tidak ditemukan.");
+        Map<String, Object> inv = rows.get(0);
+        if ("VOID".equals(inv.get("status"))) throw new IllegalArgumentException("Tagihan sudah dibatalkan.");
+        long net = ((Number) inv.get("base_amount")).longValue() - ((Number) inv.get("discount")).longValue();
+        int rate = ((Number) inv.get("late_fee_rate_percent")).intValue();
+        LocalDate due = ((java.sql.Date) inv.get("due_date")).toLocalDate();
+        return new Breakdown(net, sumPaid(invoiceId), rate, due);
+    }
+
     public PaymentResponse recordPayment(UUID invoiceId, PaymentRequest req, String username) {
-        Map<String, Object> inv = invoiceRow(invoiceId);
-        if (inv == null) throw new IllegalArgumentException("Tagihan tidak ditemukan.");
-        if ("VOID".equals(inv.get("status")))
-            throw new IllegalArgumentException("Tagihan sudah dibatalkan, tidak bisa menerima pembayaran.");
         if (!METHODS.contains(req.method()))
             throw new IllegalArgumentException("Method pembayaran harus salah satu: CASH, TRANSFER, OTHER.");
-
-        long net = netOf(inv);
-        long paid = sumPaid(invoiceId);
-        if (paid >= net) throw new IllegalArgumentException("Tagihan sudah lunas, tidak perlu pembayaran lagi.");
-        long remaining = net - paid;
-        if (req.amount() > remaining)
-            throw new IllegalArgumentException("Jumlah melebihi sisa tagihan (Rp " + remaining + ").");
+        Breakdown b = breakdownOf(invoiceId);
+        if (b.totalDue <= 0L) throw new IllegalArgumentException("Tagihan sudah lunas (pokok & denda), tidak perlu pembayaran lagi.");
+        if (req.amount() > b.totalDue)
+            throw new IllegalArgumentException("Jumlah melebihi total yang harus dibayar (Rp " + b.totalDue + ", termasuk denda Rp " + b.feeAmount + ").");
 
         UUID id = UUID.randomUUID();
         jdbc.update(
@@ -76,11 +108,7 @@ public class PaymentService {
     }
 
     public PaymentResponse recordAdjustment(UUID invoiceId, AdjustmentRequest req, String username) {
-        Map<String, Object> inv = invoiceRow(invoiceId);
-        if (inv == null) throw new IllegalArgumentException("Tagihan tidak ditemukan.");
-        if ("VOID".equals(inv.get("status")))
-            throw new IllegalArgumentException("Tagihan sudah dibatalkan, tidak bisa menerima adjustment.");
-
+        breakdownOf(invoiceId); // guard VOID/tidak ada
         UUID id = UUID.randomUUID();
         jdbc.update(
                 "INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, is_adjustment, received_by_username) " +
@@ -91,8 +119,7 @@ public class PaymentService {
     }
 
     public boolean deletePayment(UUID paymentId) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT invoice_id FROM payments WHERE id = ?", paymentId);
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT invoice_id FROM payments WHERE id = ?", paymentId);
         if (rows.isEmpty()) return false;
         UUID invoiceId = UUID.fromString(String.valueOf(rows.get(0).get("invoice_id")));
         jdbc.update("DELETE FROM payments WHERE id = ?", paymentId);
@@ -100,34 +127,20 @@ public class PaymentService {
         return true;
     }
 
-    // ---- helpers ----
-    private Map<String, Object> invoiceRow(UUID id) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT status, base_amount, discount FROM invoices WHERE id = ?", id);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    private long netOf(Map<String, Object> inv) {
-        return ((Number) inv.get("base_amount")).longValue()
-                - ((Number) inv.get("discount")).longValue();
-    }
-
+    // Status tersimpan mengikuti KEDUA ember: PAID hanya bila pokok & denda sama-sama nol.
     private void recompute(UUID invoiceId) {
-        Map<String, Object> inv = invoiceRow(invoiceId);
-        if (inv == null) return;
-        long net = netOf(inv);
-        long paid = sumPaid(invoiceId);
-        String status = paid >= net ? "PAID" : (paid > 0 ? "PARTIALLY_PAID" : "OPEN");
+        Breakdown b = breakdownOf(invoiceId);
+        String status;
+        if (b.totalDue <= 0L) status = "PAID";
+        else if (b.paidTotal > 0L) status = "PARTIALLY_PAID";
+        else status = "OPEN";
         jdbc.update("UPDATE invoices SET status = ?, updated_at = now() WHERE id = ?", status, invoiceId);
     }
 
     private OffsetDateTime parsePaidAt(String iso) {
-        if (iso == null || iso.isBlank()) return OffsetDateTime.now();
-        try {
-            return OffsetDateTime.parse(iso);
-        } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException("Format paidAt tidak valid. Gunakan ISO-8601 atau kosongkan.");
-        }
+        if (iso == null || iso.isBlank()) return OffsetDateTime.now(JAKARTA);
+        try { return OffsetDateTime.parse(iso); }
+        catch (DateTimeParseException e) { throw new IllegalArgumentException("Format paidAt tidak valid. Gunakan ISO-8601 atau kosongkan."); }
     }
 
     private PaymentResponse findPayment(UUID id) {

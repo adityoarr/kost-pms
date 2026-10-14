@@ -5,10 +5,14 @@ import GenerateInvoicesModal from "@/components/generate-invoices-modal";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
 import { Pagination, SearchBox, useListControls } from "@/components/list-controls";
 import { fetchApi } from "@/lib/api";
+import { readError } from "@/lib/errors";
 import { formatDate, formatRupiah } from "@/lib/format";
 import { isOwnerRole, isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
+
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 const FILTERS = [
     { key: "SEMUA", label: "Semua" }, { key: "OVERDUE", label: "Terlambat" },
@@ -50,7 +54,18 @@ export default function InvoicesPage() {
     useEffect(() => { if (authStatus === "ok") loadData(); }, [authStatus]);
     useEffect(() => { if (!successMsg) return; const t = setTimeout(() => setSuccessMsg(""), 4000); return () => clearTimeout(t); }, [successMsg]);
 
-    // Filter status dulu -> shown; lalu search+paginasi atas shown.
+    async function handleRunReminders() {
+        if (!window.confirm("Kirim pengingat tagihan (H-3 & H+3) ke penyewa sekarang?\nPengingat yang sudah pernah dikirim tidak akan diulang.")) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/reminders/run`, { method: "POST", credentials: "include" });
+            if (!res.ok) { alert(await readError(res)); return; }
+            const d = await res.json();
+            setSuccessMsg(`Pengingat terkirim: ${d.dueSoonSent} menjelang jatuh tempo, ${d.overdueSent} terlambat. (${d.skipped} sudah pernah dikirim sebelumnya)`);
+        } catch {
+            alert("Tidak bisa menghubungi server.");
+        }
+    }
+
     const shown = filter === "SEMUA" ? invoices : invoices.filter((i) => i.effectiveStatus === filter);
     const { query, setQuery, page, setPage, pageCount, total, view } = useListControls(shown, {
         searchKeys: ["tenantName", "tenantPhone", "unitNumber", "propertyName"],
@@ -69,7 +84,18 @@ export default function InvoicesPage() {
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Tagihan & Pembayaran</h1>
                         <p className="text-gray-500 mt-1">Piutang kost Anda, per bulan, per penyewa.</p>
                     </div>
-                    <button onClick={() => setGenOpen(true)} className="px-5 py-3 bg-gray-800 hover:bg-gray-900 text-white rounded-xl font-semibold shadow-sm">⚙️ Generate Tagihan</button>
+                    <div className="flex flex-wrap gap-2">
+                        {canVoid && (
+                            <button onClick={handleRunReminders}
+                                className="px-5 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-semibold shadow-sm">
+                                🔔 Kirim Pengingat
+                            </button>
+                        )}
+                        <button onClick={() => setGenOpen(true)}
+                            className="px-5 py-3 bg-gray-800 hover:bg-gray-900 text-white rounded-xl font-semibold shadow-sm">
+                            ⚙️ Generate Tagihan
+                        </button>
+                    </div>
                 </div>
 
                 {successMsg && (<div className="mb-6 p-4 rounded-xl bg-green-50 text-green-800 border border-green-200 font-medium">{successMsg}</div>)}
@@ -111,8 +137,8 @@ export default function InvoicesPage() {
                                             <td className="p-4"><p className="font-medium text-gray-900">{inv.tenantName}</p><p className="text-xs text-gray-500 font-mono">{inv.tenantPhone}</p></td>
                                             <td className="p-4 text-gray-600"><p className="font-medium">Kamar {inv.unitNumber}</p><p className="text-xs text-gray-500">{inv.propertyName}</p></td>
                                             <td className="p-4 text-gray-600 text-sm">{formatDate(inv.dueDate)}</td>
-                                            <td className="p-4 text-right font-mono text-gray-900">{formatRupiah(inv.remaining)}</td>
-                                            <td className="p-4 text-right font-mono text-red-600">{inv.lateFee > 0 ? formatRupiah(inv.lateFee) : "-"}</td>
+                                            <td className="p-4 text-right font-mono text-gray-900">{formatRupiah(inv.principalRemaining ?? inv.remaining)}</td>
+                                            <td className="p-4 text-right font-mono text-red-600">{(inv.feeAmount ?? inv.lateFee ?? 0) > 0 ? formatRupiah(inv.feeAmount ?? inv.lateFee) : "-"}</td>
                                             <td className="p-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(inv.effectiveStatus)}`}>{inv.effectiveStatus}</span></td>
                                             <td className="p-4 text-right"><button onClick={() => setDetailId(inv.id)} className="px-3 py-1 rounded-lg text-blue-600 hover:bg-blue-50 font-medium text-sm">Detail</button></td>
                                         </tr>
