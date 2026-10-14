@@ -1,15 +1,23 @@
 // src/lib/use-auth-guard.ts
 "use client";
 
-import { fetchApi } from "@/lib/api";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { fetchApi } from "@/lib/api";
 
 export type MeResponse = { username: string; roles: string[] };
 
-const OWNER_ROLES = ["ROLE_SUPERADMIN", "ROLE_ADMIN"];
+// Satu sumber kebenaran untuk realm owner+staff: /auth/me.
+// Tenant TIDAK dipetakan di sini (realm-nya /tenant-auth/me) — tapi kalau
+// /auth/me kebetulan mengembalikan ROLE_TENANT, kita tetap arahkan ke /tenant
+// agar tidak ada sesi yang "nyangkut" tanpa rumah.
+function realmOf(roles: string[]): "owner" | "staff" | "tenant" {
+  if (roles.includes("ROLE_SUPERADMIN") || roles.includes("ROLE_ADMIN")) return "owner";
+  if (roles.includes("ROLE_STAFF")) return "staff";
+  return "tenant";
+}
 
-// Guard untuk area OWNER. Sesi tenant yang nyasar akan dilempar ke /tenant.
+// Guard untuk area OWNER (/dashboard, /properties, /tenants, dst).
 export function useAuthGuard() {
   const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -20,13 +28,14 @@ export function useAuthGuard() {
     fetchApi<MeResponse>("/auth/me")
       .then((d) => {
         if (cancelled) return;
-        const isOwner = d.roles.some((r) => OWNER_ROLES.includes(r));
-        if (isOwner) {
+        const realm = realmOf(d.roles);
+        if (realm === "owner") {
           setMe(d);
           setStatus("ok");
         } else {
+          // staff -> rumah kerja staff; tenant -> rumah tenant. Bukan /tenant buta.
           setStatus("error");
-          router.replace("/tenant");
+          router.replace(realm === "staff" ? "/staff" : "/tenant");
         }
       })
       .catch(() => {
@@ -35,9 +44,7 @@ export function useAuthGuard() {
           router.replace("/login");
         }
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router]);
 
   return { me, status };
