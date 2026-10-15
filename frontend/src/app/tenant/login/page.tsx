@@ -157,7 +157,11 @@ export default function TenantLoginPage() {
                     </button>
                 </form>
 
-                <p className="mt-8 text-center text-sm text-gray-400">
+                <div className="mt-6 text-center text-sm">
+                    <a href="/tenant/forgot-password" className="text-blue-600 hover:underline">Lupa password?</a>
+                </div>
+
+                <p className="mt-4 text-center text-sm text-gray-400">
                     Bukan penyewa?{" "}
                     <a href="/login" className="text-blue-600 hover:underline">Masuk sebagai pengelola</a>
                 </p>

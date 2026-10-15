@@ -14,9 +14,11 @@ import java.util.UUID;
 public class UnitService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final OwnerContextService ownerContext;
 
-    public UnitService(JdbcTemplate jdbcTemplate) {
+    public UnitService(JdbcTemplate jdbcTemplate, OwnerContextService ownerContext) {
         this.jdbcTemplate = jdbcTemplate;
+        this.ownerContext = ownerContext;
     }
 
     private final RowMapper<UnitResponse> mapper = (rs, rowNum) -> new UnitResponse(
@@ -31,31 +33,41 @@ public class UnitService {
             rs.getString("status")
     );
 
-    // Query gabungan: ambil unit beserta nama propertinya
+    // JOIN dengan properti + scope owner_id di properti
     private static final String SELECT_JOIN = 
         "SELECT u.id, u.property_id, p.name as property_name, u.unit_number, u.unit_type, " +
         "u.capacity, u.monthly_rate, u.facilities, u.status " +
         "FROM units u JOIN properties p ON u.property_id = p.id ";
 
     public List<UnitResponse> findByProperty(UUID propertyId) {
-        return jdbcTemplate.query(SELECT_JOIN + "WHERE u.property_id = ? ORDER BY u.unit_number ASC", mapper, propertyId);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
+        return jdbcTemplate.query(
+                SELECT_JOIN + "WHERE u.property_id = ? AND p.owner_id = ? ORDER BY u.unit_number ASC",
+                mapper, propertyId, ownerId);
     }
 
     public UnitResponse findById(UUID id) {
-        List<UnitResponse> rows = jdbcTemplate.query(SELECT_JOIN + "WHERE u.id = ?", mapper, id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        List<UnitResponse> rows = jdbcTemplate.query(
+                SELECT_JOIN + "WHERE u.id = ? AND p.owner_id = ?", mapper, id, ownerId);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     public UnitResponse create(UnitRequest req) throws Exception {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         UUID id = UUID.randomUUID();
         UUID propId = UUID.fromString(req.propertyId());
         
-        // Validasi: Pastikan properti ada dan aktif
+        // Validasi: properti ada, aktif, DAN milik owner ini
         Integer propCount = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM properties WHERE id = ? AND status = 'ACTIVE'", Integer.class, propId);
-        if (propCount == 0) throw new IllegalArgumentException("Properti tidak ditemukan atau tidak aktif");
+            "SELECT COUNT(*) FROM properties WHERE id = ? AND status = 'ACTIVE' AND owner_id = ?",
+            Integer.class, propId, ownerId);
+        if (propCount == null || propCount == 0)
+            throw new IllegalArgumentException("Properti tidak ditemukan, tidak aktif, atau bukan milik Anda.");
 
-        // Default values jika kosong
         String type = (req.unitType() != null && !req.unitType().isBlank()) ? req.unitType() : "STANDARD";
         int cap = (req.capacity() != null) ? req.capacity() : 1;
         long rate = (req.monthlyRate() != null) ? req.monthlyRate() : 0;
@@ -64,8 +76,8 @@ public class UnitService {
 
         try {
             jdbcTemplate.update(
-                "INSERT INTO units (id, property_id, unit_number, unit_type, capacity, monthly_rate, facilities, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                id, propId, req.unitNumber(), type, cap, rate, facs, stat
+                "INSERT INTO units (id, property_id, unit_number, unit_type, capacity, monthly_rate, facilities, status, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                id, propId, req.unitNumber(), type, cap, rate, facs, stat, ownerId
             );
         } catch (org.springframework.dao.DuplicateKeyException e) {
             throw new IllegalArgumentException("Nomor kamar '" + req.unitNumber() + "' sudah ada di properti ini");
@@ -75,25 +87,29 @@ public class UnitService {
     }
 
     public UnitResponse update(UUID id, UnitRequest req) throws Exception {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        // Hanya update jika unit milik owner (via property join)
         int updated = jdbcTemplate.update(
-            "UPDATE units SET unit_number=?, unit_type=?, capacity=?, monthly_rate=?, facilities=?, status=?, updated_at=now() WHERE id=?",
+            "UPDATE units SET unit_number=?, unit_type=?, capacity=?, monthly_rate=?, facilities=?, status=?, updated_at=now() " +
+            "WHERE id=? AND property_id IN (SELECT id FROM properties WHERE owner_id = ?)",
             req.unitNumber(),
             (req.unitType() != null) ? req.unitType() : "STANDARD",
             (req.capacity() != null) ? req.capacity() : 1,
             (req.monthlyRate() != null) ? req.monthlyRate() : 0,
             (req.facilities() != null) ? req.facilities().toArray(new String[0]) : new String[0],
             (req.status() != null) ? req.status() : "VACANT",
-            id
+            id, ownerId
         );
         return updated == 0 ? null : findById(id);
     }
 
     public boolean delete(UUID id) {
-        // Soft delete? Untuk unit, biasanya hard delete allowed jika belum ada tenant.
-        // Tapi karena FK constraint ON DELETE RESTRICT di DB, kita coba delete biasa dulu.
-        // Jika gagal karena ada referensi lain (tenant), nanti kita tangani di Fase Tenant.
-        // Untuk MVP Unit, kita izinkan hard delete selama belum ada kontrak.
-        int deleted = jdbcTemplate.update("DELETE FROM units WHERE id = ?", id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return false;
+        int deleted = jdbcTemplate.update(
+            "DELETE FROM units WHERE id = ? AND property_id IN (SELECT id FROM properties WHERE owner_id = ?)",
+            id, ownerId);
         return deleted > 0;
     }
 }

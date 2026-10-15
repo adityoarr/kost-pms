@@ -17,9 +17,11 @@ import java.util.stream.Collectors;
 public class AuditService {
 
     private final JdbcTemplate jdbc;
+    private final OwnerContextService ownerContext;
 
-    public AuditService(JdbcTemplate jdbc) {
+    public AuditService(JdbcTemplate jdbc, OwnerContextService ownerContext) {
         this.jdbc = jdbc;
+        this.ownerContext = ownerContext;
     }
 
     private final RowMapper<AuditLogResponse> mapper = (rs, n) -> new AuditLogResponse(
@@ -49,22 +51,26 @@ public class AuditService {
                     .map(a -> a.getAuthority())
                     .collect(Collectors.joining(","));
         }
+        UUID ownerId = ownerContext.getCurrentOwnerId();
         jdbc.update(
-                "INSERT INTO audit_logs (id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO audit_logs (id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after, owner_id) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), actor, role, action, entityType, entityId, httpMethod, httpStatus,
                 ip == null ? null : (ip.length() > 120 ? ip.substring(0, 120) : ip),
-                detailBefore, detailAfter);
+                detailBefore, detailAfter, ownerId);
     }
 
     public List<AuditLogResponse> query(Integer limit, String action, String actor) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
         StringBuilder sb = new StringBuilder(
-                "SELECT id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after, created_at FROM audit_logs");
+                "SELECT id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after, created_at FROM audit_logs WHERE owner_id = ?");
         List<Object> params = new ArrayList<>();
+        params.add(ownerId);
         List<String> conds = new ArrayList<>();
         if (action != null && !action.isBlank()) { conds.add("action = ?"); params.add(action); }
         if (actor != null && !actor.isBlank()) { conds.add("actor_username = ?"); params.add(actor); }
-        if (!conds.isEmpty()) sb.append(" WHERE ").append(String.join(" AND ", conds));
+        if (!conds.isEmpty()) sb.append(" AND ").append(String.join(" AND ", conds));
         sb.append(" ORDER BY created_at DESC");
         int lim = (limit == null || limit <= 0 || limit > 500) ? 100 : limit;
         sb.append(" LIMIT ?");

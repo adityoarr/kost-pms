@@ -2,7 +2,7 @@
 "use client";
 
 import { readError } from "@/lib/errors";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
@@ -14,15 +14,34 @@ type Props = {
     onSaved: (message: string) => void;
 };
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function TenantFormModal({ mode, initialData, onClose, onSaved }: Props) {
     const isEdit = mode === "edit";
     const [name, setName] = useState(initialData?.name ?? "");
     const [phone, setPhone] = useState(initialData?.phone ?? "");
+    const [email, setEmail] = useState("");
     const [nik, setNik] = useState(initialData?.nik ?? "");
     const [address, setAddress] = useState(initialData?.address ?? "");
     const [notes, setNotes] = useState(initialData?.notes ?? "");
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    // Anti-duplikat: setelah tenant dibuat sekali, retry hanya meng-PUT email.
+    const [createdId, setCreatedId] = useState<string | null>(isEdit ? initialData?.id ?? null : null);
+
+    // Mode edit: pre-fill email dari endpoint terpisah.
+    useEffect(() => {
+        if (!isEdit || !initialData?.id) return;
+        let cancelled = false;
+        fetch(`${API_BASE_URL}/tenants/${initialData.id}/email`, { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (cancelled || !d) return;
+                setEmail(d.email ?? "");
+            })
+            .catch(() => { });
+        return () => { cancelled = true; };
+    }, [isEdit, initialData?.id]);
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -35,25 +54,63 @@ export default function TenantFormModal({ mode, initialData, onClose, onSaved }:
             setError("No. HP harus format internasional, contoh: +6281234567890");
             return;
         }
+        if (!email.trim()) {
+            setError("Email wajib diisi (diperlukan untuk fitur lupa password).");
+            return;
+        }
+        if (!EMAIL_RE.test(email.trim())) {
+            setError("Format email tidak valid.");
+            return;
+        }
         setSubmitting(true);
         try {
-            const url = isEdit ? `${API_BASE_URL}/tenants/${initialData.id}` : `${API_BASE_URL}/tenants`;
-            const res = await fetch(url, {
-                method: isEdit ? "PUT" : "POST",
+            // 1) Simpan tenant (POST sekali; retry pakai createdId -> PUT, tidak duplikat)
+            let tenantId = createdId;
+            if (!tenantId) {
+                const res = await fetch(`${API_BASE_URL}/tenants`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                        name: name.trim(),
+                        phone: phone.trim(),
+                        nik: nik.trim() || null,
+                        address: address.trim() || null,
+                        notes: notes.trim() || null,
+                    }),
+                });
+                if (!res.ok) { setError(await readError(res)); return; }
+                const created = await res.json();
+                tenantId = created.id;
+                setCreatedId(tenantId);
+            } else {
+                const res = await fetch(`${API_BASE_URL}/tenants/${tenantId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                        name: name.trim(),
+                        phone: phone.trim(),
+                        nik: nik.trim() || null,
+                        address: address.trim() || null,
+                        notes: notes.trim() || null,
+                    }),
+                });
+                if (!res.ok) { setError(await readError(res)); return; }
+            }
+
+            // 2) Simpan email via endpoint terpisah (endpoint ini menolak kosong & format salah)
+            const resEmail = await fetch(`${API_BASE_URL}/tenants/${tenantId}/email`, {
+                method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({
-                    name: name.trim(),
-                    phone: phone.trim(),
-                    nik: nik.trim() || null,
-                    address: address.trim() || null,
-                    notes: notes.trim() || null,
-                }),
+                body: JSON.stringify({ email: email.trim() }),
             });
-            if (!res.ok) {
-                setError(await readError(res));
+            if (!resEmail.ok) {
+                setError(`Penyewa tersimpan, tapi email gagal: ${await readError(resEmail)}. Perbaiki lalu klik Simpan lagi (penyewa tidak dibuat ulang).`);
                 return;
             }
+
             onSaved(isEdit ? "Perubahan penyewa tersimpan ✅" : "Penyewa baru ditambahkan ✅");
             onClose();
         } catch {
@@ -103,6 +160,17 @@ export default function TenantFormModal({ mode, initialData, onClose, onSaved }:
                             onChange={(e) => setPhone(e.target.value)}
                             className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder="+6281234567890"
+                            required
+                        />
+                    </Field>
+
+                    <Field label="Email *" hint="Diperlukan untuk fitur lupa password. Pastikan tenant aktif menggunakan email ini.">
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="nama@contoh.com"
                             required
                         />
                     </Field>

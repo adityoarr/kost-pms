@@ -22,8 +22,8 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
-                .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login").permitAll()
+                .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login", "/owners").permitAll()
+                .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login", "/tenant-auth/forgot-password", "/tenant-auth/reset-password").permitAll()
 
                 .requestMatchers("/tenant-me/**").hasRole("TENANT")
                 .requestMatchers(HttpMethod.POST, "/tickets").hasRole("TENANT")

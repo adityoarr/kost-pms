@@ -16,9 +16,11 @@ import java.util.UUID;
 public class LeaseService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final OwnerContextService ownerContext;
 
-    public LeaseService(JdbcTemplate jdbcTemplate) {
+    public LeaseService(JdbcTemplate jdbcTemplate, OwnerContextService ownerContext) {
         this.jdbcTemplate = jdbcTemplate;
+        this.ownerContext = ownerContext;
     }
 
     private final RowMapper<LeaseResponse> mapper = (rs, n) -> new LeaseResponse(
@@ -39,6 +41,7 @@ public class LeaseService {
             rs.getObject("created_at", java.time.OffsetDateTime.class)
     );
 
+    // Scope via tenant AND property (dua-duanya harus milik owner)
     private static final String SELECT_JOIN =
             "SELECT l.id, l.tenant_id, t.name AS tenant_name, t.phone AS tenant_phone, " +
             "       l.unit_id, u.unit_number, u.property_id, p.name AS property_name, " +
@@ -47,59 +50,63 @@ public class LeaseService {
             "FROM leases l " +
             "JOIN tenants t ON l.tenant_id = t.id " +
             "JOIN units u ON l.unit_id = u.id " +
-            "JOIN properties p ON u.property_id = p.id ";
+            "JOIN properties p ON u.property_id = p.id " +
+            "WHERE t.owner_id = p.owner_id AND p.owner_id = ? ";
 
     public List<LeaseResponse> findAll() {
-        return jdbcTemplate.query(SELECT_JOIN + "ORDER BY l.created_at DESC", mapper);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
+        return jdbcTemplate.query(SELECT_JOIN + "ORDER BY l.created_at DESC", mapper, ownerId, ownerId);
     }
 
     public LeaseResponse findById(UUID id) {
-        List<LeaseResponse> rows = jdbcTemplate.query(SELECT_JOIN + "WHERE l.id = ?", mapper, id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        List<LeaseResponse> rows = jdbcTemplate.query(SELECT_JOIN + "AND l.id = ?", mapper, ownerId, ownerId, id);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     @Transactional
     public LeaseResponse create(LeaseRequest req, String username) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         UUID tenantId = UUID.fromString(req.tenantId());
         UUID unitId = UUID.fromString(req.unitId());
 
-        // 1) Tenant harus ada & aktif.
+        // 1) Tenant harus ada, aktif, DAN milik owner ini
         List<Map<String, Object>> tRows = jdbcTemplate.queryForList(
-                "SELECT status FROM tenants WHERE id = ?", tenantId);
-        if (tRows.isEmpty()) throw new IllegalArgumentException("Penyewa tidak ditemukan.");
+                "SELECT status FROM tenants WHERE id = ? AND owner_id = ?", tenantId, ownerId);
+        if (tRows.isEmpty()) throw new IllegalArgumentException("Penyewa tidak ditemukan atau bukan milik Anda.");
         if (!"ACTIVE".equals(tRows.get(0).get("status")))
             throw new IllegalArgumentException("Penyewa ini tidak aktif, tidak bisa dibuatkan kontrak.");
 
-        // 2) Kamar harus ada & KOSONG (tolak MAINTENANCE/BLOCKED/OCCUPIED).
+        // 2) Kamar harus ada, KOSONG, DAN milik owner ini (via property)
         List<Map<String, Object>> uRows = jdbcTemplate.queryForList(
-                "SELECT status, monthly_rate FROM units WHERE id = ?", unitId);
-        if (uRows.isEmpty()) throw new IllegalArgumentException("Kamar tidak ditemukan.");
+                "SELECT u.status, u.monthly_rate FROM units u " +
+                "JOIN properties p ON u.property_id = p.id " +
+                "WHERE u.id = ? AND p.owner_id = ?", unitId, ownerId);
+        if (uRows.isEmpty()) throw new IllegalArgumentException("Kamar tidak ditemukan atau bukan milik Anda.");
         String unitStatus = (String) uRows.get(0).get("status");
         if (!"VACANT".equals(unitStatus))
             throw new IllegalArgumentException("Kamar sedang " + unitStatus + ", tidak bisa disewakan.");
 
-        // 3) Validasi tanggal.
         if (req.endDate() != null && req.endDate().isBefore(req.startDate()))
             throw new IllegalArgumentException("Tanggal selesai tidak boleh sebelum tanggal mulai.");
 
-        // 4) Snapshot harga: pakai yang dikirim, atau ambil tarif kamar saat ini.
         long rate = (req.monthlyRate() != null) ? req.monthlyRate()
                 : ((Number) uRows.get(0).get("monthly_rate")).longValue();
         long dep = (req.deposit() != null) ? req.deposit() : 0L;
 
-        // 5) INSERT kontrak aktif.
         UUID id = UUID.randomUUID();
         try {
             jdbcTemplate.update(
-                    "INSERT INTO leases (id, tenant_id, unit_id, start_date, end_date, monthly_rate, deposit, status, created_by_username) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)",
-                    id, tenantId, unitId, req.startDate(), req.endDate(), rate, dep, username);
+                    "INSERT INTO leases (id, tenant_id, unit_id, start_date, end_date, monthly_rate, deposit, status, created_by_username, owner_id) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                    id, tenantId, unitId, req.startDate(), req.endDate(), rate, dep, username, ownerId);
         } catch (org.springframework.dao.DuplicateKeyException e) {
-            // Penutup race condition: kamar baru saja terisi oleh request lain.
             throw new IllegalArgumentException("Kamar ini baru saja terisi. Muat ulang dan coba lagi.");
         }
 
-        // 6) OTOMATIS: kamar jadi OCCUPIED.
         jdbcTemplate.update("UPDATE units SET status='OCCUPIED', updated_at=now() WHERE id = ?", unitId);
 
         return findById(id);
@@ -107,24 +114,25 @@ public class LeaseService {
 
     @Transactional
     public LeaseResponse changeStatus(UUID id, String newStatus) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         if (!"ENDED".equals(newStatus) && !"CANCELLED".equals(newStatus))
             throw new IllegalArgumentException("Status penutupan harus ENDED atau CANCELLED.");
 
-        // Ambil lease + unit_id, pastikan masih aktif.
+        // Ambil lease hanya jika milik owner (via tenant join)
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT status, unit_id FROM leases WHERE id = ?", id);
-        if (rows.isEmpty()) throw new IllegalArgumentException("Kontrak tidak ditemukan.");
+                "SELECT l.status, l.unit_id FROM leases l " +
+                "JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE l.id = ? AND t.owner_id = ?", id, ownerId);
+        if (rows.isEmpty()) throw new IllegalArgumentException("Kontrak tidak ditemukan atau bukan milik Anda.");
         if (!"ACTIVE".equals(rows.get(0).get("status")))
             throw new IllegalArgumentException("Kontrak ini sudah tidak aktif.");
         UUID unitId = (UUID) rows.get(0).get("unit_id");
 
-        // 1) Tandai kontrak selesai/dibatalkan + catat waktu sebenarnya.
         jdbcTemplate.update(
-                "UPDATE leases SET status=?, terminated_at=now(), updated_at=now() WHERE id=?",
-                newStatus, id);
+                "UPDATE leases SET status=?, terminated_at=now(), updated_at=now() WHERE id=? AND owner_id=?",
+                newStatus, id, ownerId);
 
-        // 2) OTOMATIS: kamar kembali VACANT (hanya jika memang masih OCCUPIED,
-        //    agar tidak menimpa status manual MAINTENANCE/BLOCKED).
         jdbcTemplate.update(
                 "UPDATE units SET status='VACANT', updated_at=now() WHERE id=? AND status='OCCUPIED'",
                 unitId);

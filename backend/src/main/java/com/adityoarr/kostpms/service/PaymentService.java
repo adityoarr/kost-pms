@@ -23,9 +23,11 @@ public class PaymentService {
     private static final ZoneId JAKARTA = ZoneId.of("Asia/Jakarta");
 
     private final JdbcTemplate jdbc;
+    private final OwnerContextService ownerContext;
 
-    public PaymentService(JdbcTemplate jdbc) {
+    public PaymentService(JdbcTemplate jdbc, OwnerContextService ownerContext) {
         this.jdbc = jdbc;
+        this.ownerContext = ownerContext;
     }
 
     private final RowMapper<PaymentResponse> paymentMapper = (rs, n) -> new PaymentResponse(
@@ -54,17 +56,14 @@ public class PaymentService {
                 paymentMapper, invoiceId);
     }
 
-    // ---- sumber kebenaran tunggal perhitungan pokok/denda ----
-    // Dipakai oleh PaymentService (validasi) DAN InvoiceService (respons).
-    // Denda SELALU turunan dari sisa pokok SETELAH pembayaran -> tidak ada state denda untuk dirusak.
     public static class Breakdown {
-        public final long netPrincipal;     // base - discount
-        public final long paidTotal;        // seluruh struk (termasuk adjustment negatif)
-        public final long principalPaid;    // min(paidTotal, netPrincipal)
-        public final long feePaid;          // max(0, paidTotal - netPrincipal)
+        public final long netPrincipal;
+        public final long paidTotal;
+        public final long principalPaid;
+        public final long feePaid;
         public final long principalRemaining;
-        public final long feeAmount;        // turunan dari principalRemaining
-        public final long totalDue;         // principalRemaining + feeAmount
+        public final long feeAmount;
+        public final long totalDue;
         public Breakdown(long netPrincipal, long paidTotal, long feeRatePercent, LocalDate dueDate) {
             this.netPrincipal = netPrincipal;
             this.paidTotal = paidTotal;
@@ -90,7 +89,22 @@ public class PaymentService {
         return new Breakdown(net, sumPaid(invoiceId), rate, due);
     }
 
+    // Helper: validasi invoice milik owner ini (via lease->tenant->owner)
+    private boolean isInvoiceOwned(UUID invoiceId) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return false;
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM invoices i " +
+                "JOIN leases l ON i.lease_id = l.id " +
+                "JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE i.id = ? AND t.owner_id = ?",
+                Integer.class, invoiceId, ownerId);
+        return count != null && count > 0;
+    }
+
     public PaymentResponse recordPayment(UUID invoiceId, PaymentRequest req, String username) {
+        if (!isInvoiceOwned(invoiceId))
+            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
         if (!METHODS.contains(req.method()))
             throw new IllegalArgumentException("Method pembayaran harus salah satu: CASH, TRANSFER, OTHER.");
         Breakdown b = breakdownOf(invoiceId);
@@ -98,28 +112,40 @@ public class PaymentService {
         if (req.amount() > b.totalDue)
             throw new IllegalArgumentException("Jumlah melebihi total yang harus dibayar (Rp " + b.totalDue + ", termasuk denda Rp " + b.feeAmount + ").");
 
+        UUID ownerId = ownerContext.getCurrentOwnerId();
         UUID id = UUID.randomUUID();
         jdbc.update(
-                "INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, is_adjustment, received_by_username) " +
-                "VALUES (?, ?, ?, ?, ?, ?, false, ?)",
-                id, invoiceId, req.amount(), req.method(), req.reference(), parsePaidAt(req.paidAt()), username);
+                "INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, is_adjustment, received_by_username, owner_id) " +
+                "VALUES (?, ?, ?, ?, ?, ?, false, ?, ?)",
+                id, invoiceId, req.amount(), req.method(), req.reference(), parsePaidAt(req.paidAt()), username, ownerId);
         recompute(invoiceId);
         return findPayment(id);
     }
 
     public PaymentResponse recordAdjustment(UUID invoiceId, AdjustmentRequest req, String username) {
-        breakdownOf(invoiceId); // guard VOID/tidak ada
+        if (!isInvoiceOwned(invoiceId))
+            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
+        breakdownOf(invoiceId);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
         UUID id = UUID.randomUUID();
         jdbc.update(
-                "INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, is_adjustment, received_by_username) " +
-                "VALUES (?, ?, ?, 'ADJUSTMENT', ?, now(), true, ?)",
-                id, invoiceId, req.amount(), req.reason(), username);
+                "INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, is_adjustment, received_by_username, owner_id) " +
+                "VALUES (?, ?, ?, 'ADJUSTMENT', ?, now(), true, ?, ?)",
+                id, invoiceId, req.amount(), req.reason(), username, ownerId);
         recompute(invoiceId);
         return findPayment(id);
     }
 
     public boolean deletePayment(UUID paymentId) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT invoice_id FROM payments WHERE id = ?", paymentId);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return false;
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT p.invoice_id FROM payments p " +
+                "JOIN invoices i ON p.invoice_id = i.id " +
+                "JOIN leases l ON i.lease_id = l.id " +
+                "JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE p.id = ? AND t.owner_id = ?",
+                paymentId, ownerId);
         if (rows.isEmpty()) return false;
         UUID invoiceId = UUID.fromString(String.valueOf(rows.get(0).get("invoice_id")));
         jdbc.update("DELETE FROM payments WHERE id = ?", paymentId);
@@ -127,7 +153,6 @@ public class PaymentService {
         return true;
     }
 
-    // Status tersimpan mengikuti KEDUA ember: PAID hanya bila pokok & denda sama-sama nol.
     private void recompute(UUID invoiceId) {
         Breakdown b = breakdownOf(invoiceId);
         String status;

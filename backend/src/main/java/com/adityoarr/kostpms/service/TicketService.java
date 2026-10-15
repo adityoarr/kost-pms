@@ -21,9 +21,11 @@ public class TicketService {
     private static final Set<String> DONE = Set.of("RESOLVED", "CLOSED");
 
     private final JdbcTemplate jdbc;
+    private final OwnerContextService ownerContext;
 
-    public TicketService(JdbcTemplate jdbc) {
+    public TicketService(JdbcTemplate jdbc, OwnerContextService ownerContext) {
         this.jdbc = jdbc;
+        this.ownerContext = ownerContext;
     }
 
     private static final String SELECT_JOIN =
@@ -33,7 +35,8 @@ public class TicketService {
             "FROM tickets t " +
             "JOIN tenants tn ON t.tenant_id = tn.id " +
             "JOIN units u ON t.unit_id = u.id " +
-            "JOIN properties p ON u.property_id = p.id ";
+            "JOIN properties p ON u.property_id = p.id " +
+            "WHERE tn.owner_id = p.owner_id AND p.owner_id = ? ";
 
     private final RowMapper<TicketResponse> mapper = (rs, n) -> new TicketResponse(
             rs.getString("id"),
@@ -55,6 +58,15 @@ public class TicketService {
     );
 
     public TicketResponse create(UUID tenantId, TicketCreateRequest req) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
+        // Validasi tenant milik owner ini
+        Integer tenantCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM tenants WHERE id = ? AND owner_id = ?",
+                Integer.class, tenantId, ownerId);
+        if (tenantCount == null || tenantCount == 0)
+            throw new IllegalArgumentException("Tenant tidak ditemukan atau bukan milik Anda.");
+        
         UUID unitId;
         if (req.unitId() != null && !req.unitId().isBlank()) {
             unitId = UUID.fromString(req.unitId());
@@ -75,28 +87,36 @@ public class TicketService {
         }
         UUID id = UUID.randomUUID();
         jdbc.update(
-                "INSERT INTO tickets (id, tenant_id, unit_id, category, title, description, status) VALUES (?, ?, ?, ?, ?, ?, 'OPEN')",
-                id, tenantId, unitId, req.category(), req.title(), req.description());
+                "INSERT INTO tickets (id, tenant_id, unit_id, category, title, description, status, owner_id) VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)",
+                id, tenantId, unitId, req.category(), req.title(), req.description(), ownerId);
         return findById(id);
     }
 
     public List<TicketResponse> findAll(String status) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
         if (status != null && !status.isBlank()) {
-            return jdbc.query(SELECT_JOIN + "WHERE t.status = ? ORDER BY t.created_at DESC", mapper, status);
+            return jdbc.query(SELECT_JOIN + "AND t.status = ? ORDER BY t.created_at DESC", mapper, ownerId, status);
         }
-        return jdbc.query(SELECT_JOIN + "ORDER BY t.created_at DESC", mapper);
+        return jdbc.query(SELECT_JOIN + "ORDER BY t.created_at DESC", mapper, ownerId);
     }
 
     public List<TicketResponse> findByTenant(UUID tenantId) {
-        return jdbc.query(SELECT_JOIN + "WHERE t.tenant_id = ? ORDER BY t.created_at DESC", mapper, tenantId);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
+        return jdbc.query(SELECT_JOIN + "AND t.tenant_id = ? ORDER BY t.created_at DESC", mapper, ownerId, tenantId);
     }
 
     public TicketResponse findById(UUID id) {
-        List<TicketResponse> rows = jdbc.query(SELECT_JOIN + "WHERE t.id = ?", mapper, id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        List<TicketResponse> rows = jdbc.query(SELECT_JOIN + "AND t.id = ?", mapper, ownerId, id);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     public TicketResponse update(UUID id, TicketUpdateRequest req) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
         TicketResponse current = findById(id);
         if (current == null) return null;
 
@@ -105,8 +125,8 @@ public class TicketService {
         }
         if (req.assignedToUsername() != null && !req.assignedToUsername().isBlank()) {
             Integer exists = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM users WHERE username = ? AND status = 'ACTIVE'",
-                    Integer.class, req.assignedToUsername());
+                    "SELECT COUNT(*) FROM users WHERE username = ? AND status = 'ACTIVE' AND owner_id = ?",
+                    Integer.class, req.assignedToUsername(), ownerId);
             if (exists == null || exists == 0) {
                 throw new IllegalArgumentException("Pengguna penugasan tidak ditemukan atau tidak aktif.");
             }
@@ -133,7 +153,8 @@ public class TicketService {
 
         sets.add("updated_at = now()");
         params.add(id);
-        jdbc.update("UPDATE tickets SET " + String.join(", ", sets) + " WHERE id = ?", params.toArray());
+        params.add(ownerId);
+        jdbc.update("UPDATE tickets SET " + String.join(", ", sets) + " WHERE id = ? AND owner_id = ?", params.toArray());
         return findById(id);
     }
 }

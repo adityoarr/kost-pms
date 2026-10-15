@@ -11,22 +11,24 @@ import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ReportService {
 
-    // Zona EKSPISIT: batas waktu dihitung di Java, dikirim sebagai nilai absolut
-    // ke SQL, sehingga tidak tergantung zona server database.
     private static final ZoneId JAKARTA = ZoneId.of("Asia/Jakarta");
 
     private final JdbcTemplate jdbc;
+    private final OwnerContextService ownerContext;
 
-    public ReportService(JdbcTemplate jdbc) {
+    public ReportService(JdbcTemplate jdbc, OwnerContextService ownerContext) {
         this.jdbc = jdbc;
+        this.ownerContext = ownerContext;
     }
 
-    // ================= SUMMARY REAL-TIME (dari 7.2, dipertahankan utuh) =================
     public SummaryResponse summary() {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         LocalDate today = LocalDate.now(JAKARTA);
         LocalDate firstOfMonth = YearMonth.from(today).atDay(1);
         LocalDate firstOfNextMonth = firstOfMonth.plusMonths(1);
@@ -42,26 +44,29 @@ public class ReportService {
                 "FROM invoices i " +
                 "LEFT JOIN (SELECT invoice_id, SUM(amount) AS paid FROM payments GROUP BY invoice_id) p " +
                 "  ON p.invoice_id = i.id " +
-                "WHERE i.status <> 'VOID'";
-        var agg = jdbc.queryForMap(aggSql, today, today);
+                "JOIN leases l ON i.lease_id = l.id " +
+                "JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE i.status <> 'VOID' AND t.owner_id = ?";
+        var agg = jdbc.queryForMap(aggSql, today, today, ownerId);
 
         Long collected = jdbc.queryForObject(
-                "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ?",
-                Long.class, monthStart, monthEnd);
+                "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ? AND owner_id = ?",
+                Long.class, monthStart, monthEnd, ownerId);
 
         Long billed = jdbc.queryForObject(
-                "SELECT COALESCE(SUM(base_amount - discount),0)::bigint FROM invoices " +
-                "WHERE period_start >= ? AND period_start < ? AND status <> 'VOID'",
-                Long.class, firstOfMonth, firstOfNextMonth);
+                "SELECT COALESCE(SUM(base_amount - discount),0)::bigint FROM invoices i " +
+                "JOIN leases l ON i.lease_id = l.id JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE i.period_start >= ? AND i.period_start < ? AND i.status <> 'VOID' AND t.owner_id = ?",
+                Long.class, firstOfMonth, firstOfNextMonth, ownerId);
 
         var occ = jdbc.queryForMap(
                 "SELECT COUNT(*) FILTER (WHERE status = 'OCCUPIED')::int AS occupied, " +
                 "       COUNT(*) FILTER (WHERE status IN ('VACANT','OCCUPIED'))::int AS rentable " +
-                "FROM units");
+                "FROM units WHERE owner_id = ?", ownerId);
 
         Integer openTickets = jdbc.queryForObject(
-                "SELECT COUNT(*)::int FROM tickets WHERE status IN ('OPEN','IN_PROGRESS')",
-                Integer.class);
+                "SELECT COUNT(*)::int FROM tickets WHERE status IN ('OPEN','IN_PROGRESS') AND owner_id = ?",
+                Integer.class, ownerId);
 
         return new SummaryResponse(
                 ((Number) agg.get("outstanding")).longValue(),
@@ -74,7 +79,6 @@ public class ReportService {
                 openTickets == null ? 0 : openTickets);
     }
 
-    // ================= REKAP PER PERIODE (baru, 7.3) =================
     private static final String PERIOD_ROWS_SQL =
             "SELECT i.id, i.due_date, i.status, i.base_amount, i.discount, i.late_fee_rate_percent, " +
             "       COALESCE(p.paid, 0) AS paid, " +
@@ -87,10 +91,12 @@ public class ReportService {
             "JOIN tenants tn ON l.tenant_id = tn.id " +
             "JOIN units u ON l.unit_id = u.id " +
             "JOIN properties pr ON u.property_id = pr.id " +
-            "WHERE i.period_start >= ? AND i.period_start < ? AND i.status <> 'VOID' " +
+            "WHERE i.period_start >= ? AND i.period_start < ? AND i.status <> 'VOID' AND tn.owner_id = ? " +
             "ORDER BY tn.name, u.unit_number";
 
     public PeriodReportResponse periodReport(YearMonth period) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         LocalDate today = LocalDate.now(JAKARTA);
         LocalDate firstOfMonth = period.atDay(1);
         LocalDate firstOfNextMonth = period.plusMonths(1).atDay(1);
@@ -114,10 +120,8 @@ public class ReportService {
                     rs.getString("unit_number"),
                     rs.getString("property_name"),
                     base, disc, paid, remaining, lateFee, eff);
-        }, firstOfMonth, firstOfNextMonth);
+        }, firstOfMonth, firstOfNextMonth, ownerId);
 
-        // Semua angka (kecuali collected) dijumlahkan dari DAFTAR BARIS YANG SAMA
-        // -> konsistensi internal terjamin oleh konstruksi.
         long billedAmount = 0L, outstandingEnd = 0L, overdueAmount = 0L;
         int paidCount = 0, overdueCount = 0;
         for (var r : rows) {
@@ -130,11 +134,9 @@ public class ReportService {
             }
         }
 
-        // Collected = kas yang TERCATAT pada periode ini (termasuk pelunasan bulan lalu).
-        // Sumber terpisah dari rows -> diverifikasi silang via psql di langkah verifikasi.
         Long collected = jdbc.queryForObject(
-                "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ?",
-                Long.class, monthStart, monthEnd);
+                "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ? AND owner_id = ?",
+                Long.class, monthStart, monthEnd, ownerId);
 
         return new PeriodReportResponse(
                 period.toString(),
@@ -154,11 +156,9 @@ public class ReportService {
         return stored;
     }
 
-
-    // ===== TREN MULTI-BULAN (10.8) =====
-    // billed/collected/occupied semuanya dihitung dari fakta historis (period_start,
-    // paid_at, overlap lease) -> akurat per bulan, bukan snapshot hari ini.
     public TrendResponse trend(int monthsCount) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         int n = Math.min(Math.max(monthsCount, 1), 24);
         YearMonth current = YearMonth.now(JAKARTA);
         List<TrendResponse.MonthPoint> pts = new java.util.ArrayList<>();
@@ -171,16 +171,17 @@ public class ReportService {
             OffsetDateTime mEnd = nextFirst.atStartOfDay(JAKARTA).toOffsetDateTime();
 
             Long billed = jdbc.queryForObject(
-                    "SELECT COALESCE(SUM(base_amount - discount),0)::bigint FROM invoices " +
-                    "WHERE period_start >= ? AND period_start < ? AND status <> 'VOID'",
-                    Long.class, first, nextFirst);
+                    "SELECT COALESCE(SUM(base_amount - discount),0)::bigint FROM invoices i " +
+                    "JOIN leases l ON i.lease_id = l.id JOIN tenants t ON l.tenant_id = t.id " +
+                    "WHERE i.period_start >= ? AND i.period_start < ? AND i.status <> 'VOID' AND t.owner_id = ?",
+                    Long.class, first, nextFirst, ownerId);
             Long collected = jdbc.queryForObject(
-                    "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ?",
-                    Long.class, mStart, mEnd);
+                    "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ? AND owner_id = ?",
+                    Long.class, mStart, mEnd, ownerId);
             Integer occupied = jdbc.queryForObject(
                     "SELECT COUNT(*)::int FROM leases WHERE status IN ('ACTIVE','ENDED') " +
-                    "AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)",
-                    Integer.class, last, first);
+                    "AND start_date <= ? AND (end_date IS NULL OR end_date >= ?) AND owner_id = ?",
+                    Integer.class, last, first, ownerId);
 
             pts.add(new TrendResponse.MonthPoint(ym.toString(),
                     billed == null ? 0L : billed,
@@ -189,5 +190,4 @@ public class ReportService {
         }
         return new TrendResponse(pts);
     }
-
 }

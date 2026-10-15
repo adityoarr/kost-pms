@@ -23,15 +23,18 @@ public class InvoiceService {
 
     private final JdbcTemplate jdbc;
     private final PaymentService paymentService;
+    private final OwnerContextService ownerContext;
     private final int dueDay;
     private final long lateFeePercent;
 
     public InvoiceService(JdbcTemplate jdbc,
                           PaymentService paymentService,
+                          OwnerContextService ownerContext,
                           @Value("${app.billing.due-day:5}") int dueDay,
                           @Value("${app.billing.late-fee-percent:5}") long lateFeePercent) {
         this.jdbc = jdbc;
         this.paymentService = paymentService;
+        this.ownerContext = ownerContext;
         this.dueDay = dueDay;
         this.lateFeePercent = lateFeePercent;
     }
@@ -44,11 +47,9 @@ public class InvoiceService {
             "JOIN leases l ON i.lease_id = l.id " +
             "JOIN tenants t ON l.tenant_id = t.id " +
             "JOIN units u ON l.unit_id = u.id " +
-            "JOIN properties p ON u.property_id = p.id ";
+            "JOIN properties p ON u.property_id = p.id " +
+            "WHERE p.owner_id = ? ";
 
-    // Anonymous inner class (BUKAN lambda di field-initializer):
-    // mapRow() dipanggil setelah objek selesai dibangun, jadi akses this.paymentService aman.
-    // Ini persis pola yang compile sukses di 6.7a.
     private final RowMapper<InvoiceResponse> invoiceMapper = new RowMapper<InvoiceResponse>() {
         @Override
         public InvoiceResponse mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -58,7 +59,6 @@ public class InvoiceService {
             int rate = rs.getInt("late_fee_rate_percent");
             LocalDate due = rs.getObject("due_date", LocalDate.class);
             String stored = rs.getString("status");
-            // Reuse Breakdown -> TIDAK ada rumus denda kedua di sini.
             PaymentService.Breakdown b = paymentService.breakdownOf(id);
             String eff = effectiveStatus(stored, due);
             return new InvoiceResponse(
@@ -85,13 +85,17 @@ public class InvoiceService {
     };
 
     public Map<String, Object> generate(YearMonth period, String username) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         LocalDate start = period.atDay(1);
         LocalDate end = period.atEndOfMonth();
         LocalDate due = period.atDay(Math.min(dueDay, period.lengthOfMonth()));
+        // Scope: hanya generate untuk lease milik owner ini
         List<Map<String, Object>> leases = jdbc.queryForList(
                 "SELECT l.id, l.monthly_rate FROM leases l " +
-                "WHERE l.status = 'ACTIVE' AND l.start_date <= ? AND (l.end_date IS NULL OR l.end_date >= ?)",
-                end, start);
+                "JOIN tenants t ON l.tenant_id = t.id " +
+                "WHERE l.status = 'ACTIVE' AND l.start_date <= ? AND (l.end_date IS NULL OR l.end_date >= ?) AND t.owner_id = ?",
+                end, start, ownerId);
         int created = 0, skipped = 0;
         for (Map<String, Object> lease : leases) {
             Object leaseId = lease.get("id");
@@ -100,28 +104,33 @@ public class InvoiceService {
                     Integer.class, leaseId, start);
             if (exists != null && exists > 0) { skipped++; continue; }
             jdbc.update(
-                    "INSERT INTO invoices (id, lease_id, period_start, period_end, due_date, base_amount, discount, late_fee_rate_percent, status, created_by_username) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?)",
+                    "INSERT INTO invoices (id, lease_id, period_start, period_end, due_date, base_amount, discount, late_fee_rate_percent, status, created_by_username, owner_id) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?, ?)",
                     UUID.randomUUID(), leaseId, start, end, due,
-                    ((Number) lease.get("monthly_rate")).longValue(), lateFeePercent, username);
+                    ((Number) lease.get("monthly_rate")).longValue(), lateFeePercent, username, ownerId);
             created++;
         }
         return Map.of("period", period.toString(), "created", created, "skipped", skipped);
     }
 
     public List<InvoiceResponse> findAll(String status, String leaseId) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return List.of();
         StringBuilder sb = new StringBuilder(SELECT_JOIN);
         List<Object> params = new ArrayList<>();
+        params.add(ownerId);
         List<String> conds = new ArrayList<>();
         if (status != null && !status.isBlank()) { conds.add("i.status = ?"); params.add(status); }
         if (leaseId != null && !leaseId.isBlank()) { conds.add("i.lease_id = ?"); params.add(UUID.fromString(leaseId)); }
-        if (!conds.isEmpty()) sb.append(" WHERE ").append(String.join(" AND ", conds));
+        if (!conds.isEmpty()) sb.append(" AND ").append(String.join(" AND ", conds));
         sb.append(" ORDER BY i.period_start DESC, i.created_at DESC");
         return jdbc.query(sb.toString(), invoiceMapper, params.toArray());
     }
 
     public InvoiceResponse findById(UUID id) {
-        List<InvoiceResponse> rows = jdbc.query(SELECT_JOIN + "WHERE i.id = ?", invoiceMapper, id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        List<InvoiceResponse> rows = jdbc.query(SELECT_JOIN + "AND i.id = ?", invoiceMapper, ownerId, id);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -132,14 +141,18 @@ public class InvoiceService {
     }
 
     public InvoiceResponse voidInvoice(UUID id, String reason) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT status FROM invoices WHERE id = ?", id);
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT i.status FROM invoices i JOIN leases l ON i.lease_id = l.id JOIN tenants t ON l.tenant_id = t.id WHERE i.id = ? AND t.owner_id = ?",
+                id, ownerId);
         if (rows.isEmpty()) return null;
         if ("VOID".equals(rows.get(0).get("status")))
             throw new IllegalArgumentException("Tagihan sudah dibatalkan sebelumnya.");
         long paid = paymentService.sumPaid(id);
         if (paid != 0)
             throw new IllegalStateException("Tagihan memiliki pembayaran tercatat. Nol-kan dulu lewat adjustment sebelum dibatalkan.");
-        jdbc.update("UPDATE invoices SET status = 'VOID', void_reason = ?, updated_at = now() WHERE id = ?", reason, id);
+        jdbc.update("UPDATE invoices SET status = 'VOID', void_reason = ?, updated_at = now() WHERE id = ? AND owner_id = ?", reason, id, ownerId);
         return findById(id);
     }
 
