@@ -190,6 +190,10 @@ export default function DashboardPage() {
             <a href="/invoices" className={linkCls}>💰 Tagihan & Pembayaran</a>
             <a href="/tickets" className={linkCls}>🎫 Tiket Laporan</a>
             <a href="/reports" className={linkCls}>📊 Laporan Bulanan</a>
+            <a href="/trend" className={linkCls}>📈 Tren Multi-Bulan</a>
+            <a href="/reminders" className="w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-center transition-colors shadow-sm">
+              🔔 Riwayat Pengingat
+            </a>
 
             {isSuperAdmin(me.roles) && (
               <a

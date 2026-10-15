@@ -2,6 +2,7 @@ package com.adityoarr.kostpms.controller;
 
 import com.adityoarr.kostpms.dto.PeriodReportResponse;
 import com.adityoarr.kostpms.dto.SummaryResponse;
+import com.adityoarr.kostpms.dto.TrendResponse;
 import com.adityoarr.kostpms.service.ReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,4 +38,11 @@ public class ReportsController {
             return ResponseEntity.badRequest().body(Map.of("error", "Format month harus YYYY-MM, contoh: 2026-10."));
         }
     }
+
+
+    @GetMapping("/trend")
+    public TrendResponse trend(@RequestParam(defaultValue = "6") int months) {
+        return reportService.trend(months);
+    }
+
 }

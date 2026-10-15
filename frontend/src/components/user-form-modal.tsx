@@ -8,14 +8,17 @@ const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 type Props = {
+    mode: "create" | "edit";
+    initialData?: any;
     onClose: () => void;
     onSaved: (message: string) => void;
 };
 
-export default function UserFormModal({ onClose, onSaved }: Props) {
-    const [username, setUsername] = useState("");
-    const [fullName, setFullName] = useState("");
-    const [role, setRole] = useState("STAFF");
+export default function UserFormModal({ mode, initialData, onClose, onSaved }: Props) {
+    const isEdit = mode === "edit";
+    const [username, setUsername] = useState(initialData?.username ?? "");
+    const [fullName, setFullName] = useState(initialData?.fullName ?? "");
+    const [role, setRole] = useState(initialData?.role ?? "STAFF");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
@@ -23,32 +26,32 @@ export default function UserFormModal({ onClose, onSaved }: Props) {
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         setError("");
-        if (!username.trim() || !fullName.trim() || !password) {
+        if (!username.trim() || !fullName.trim() || (!isEdit && !password)) {
             setError("Semua field wajib diisi.");
             return;
         }
-        if (password.length < 8) {
+        if (!isEdit && password.length < 8) {
             setError("Password minimal 8 karakter.");
             return;
         }
         setSubmitting(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/users`, {
-                method: "POST",
+            const url = isEdit ? `${API_BASE_URL}/users/${initialData.id}` : `${API_BASE_URL}/users`;
+            const method = isEdit ? "PUT" : "POST";
+            const body = isEdit
+                ? { fullName: fullName.trim(), role }
+                : { username: username.trim(), fullName: fullName.trim(), password, role };
+            const res = await fetch(url, {
+                method,
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({
-                    username: username.trim(),
-                    fullName: fullName.trim(),
-                    password,
-                    role,
-                }),
+                body: JSON.stringify(body),
             });
             if (!res.ok) {
                 setError(await readError(res));
                 return;
             }
-            onSaved(`Akun ${username} berhasil dibuat ✅`);
+            onSaved(isEdit ? `Pegawai ${username} diperbarui ✅` : `Akun ${username} berhasil dibuat ✅`);
             onClose();
         } catch {
             setError("Tidak bisa menghubungi server.");
@@ -66,7 +69,7 @@ export default function UserFormModal({ onClose, onSaved }: Props) {
         >
             <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-gray-200">
                 <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-gray-900">Tambah Pegawai</h3>
+                    <h3 className="text-xl font-bold text-gray-900">{isEdit ? "Edit Pegawai" : "Tambah Pegawai"}</h3>
                     <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Tutup">×</button>
                 </div>
 
@@ -80,11 +83,13 @@ export default function UserFormModal({ onClose, onSaved }: Props) {
                         <input
                             type="text"
                             value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            readOnly={isEdit}
+                            disabled={isEdit}
+                            className={`w-full text-lg px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${isEdit ? "bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed" : "border-gray-300"}`}
                             placeholder="contoh: staff1"
                             required
                         />
+                        {isEdit && <p className="text-xs text-gray-400 mt-1">Username tidak bisa diubah (identity untuk audit log).</p>}
                     </div>
                     <div>
                         <label className="block text-base font-semibold text-gray-800 mb-1">Nama Lengkap *</label>
@@ -109,18 +114,20 @@ export default function UserFormModal({ onClose, onSaved }: Props) {
                         </select>
                         <p className="text-xs text-gray-400 mt-1">Pilih STAFF untuk operasional harian, ADMIN untuk hak lebih luas.</p>
                     </div>
-                    <div>
-                        <label className="block text-base font-semibold text-gray-800 mb-1">Password Awal *</label>
-                        <input
-                            type="text"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                            placeholder="min. 8 karakter, huruf+angka"
-                            required
-                        />
-                        <p className="text-xs text-gray-400 mt-1">Sampaikan password ini ke pegawai untuk login pertama.</p>
-                    </div>
+                    {!isEdit && (
+                        <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-1">Password Awal *</label>
+                            <input
+                                type="text"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                placeholder="min. 8 karakter, huruf+angka"
+                                required
+                            />
+                            <p className="text-xs text-gray-400 mt-1">Sampaikan password ini ke pegawai untuk login pertama.</p>
+                        </div>
+                    )}
 
                     <div className="flex gap-3 pt-2">
                         <button type="button" onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">

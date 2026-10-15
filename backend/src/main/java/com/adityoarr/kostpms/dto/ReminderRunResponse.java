@@ -1,3 +1,9 @@
 package com.adityoarr.kostpms.dto;
 
-public record ReminderRunResponse(int dueSoonSent, int overdueSent, int skipped) {}
+public record ReminderRunResponse(
+        int dueEarlySent,
+        int dueSoonSent,
+        int dueUrgentSent,
+        int overdueSent,
+        int skipped
+) {}

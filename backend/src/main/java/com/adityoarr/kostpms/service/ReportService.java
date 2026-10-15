@@ -2,6 +2,7 @@ package com.adityoarr.kostpms.service;
 
 import com.adityoarr.kostpms.dto.PeriodReportResponse;
 import com.adityoarr.kostpms.dto.SummaryResponse;
+import com.adityoarr.kostpms.dto.TrendResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -152,4 +153,41 @@ public class ReportService {
         }
         return stored;
     }
+
+
+    // ===== TREN MULTI-BULAN (10.8) =====
+    // billed/collected/occupied semuanya dihitung dari fakta historis (period_start,
+    // paid_at, overlap lease) -> akurat per bulan, bukan snapshot hari ini.
+    public TrendResponse trend(int monthsCount) {
+        int n = Math.min(Math.max(monthsCount, 1), 24);
+        YearMonth current = YearMonth.now(JAKARTA);
+        List<TrendResponse.MonthPoint> pts = new java.util.ArrayList<>();
+        for (int i = n - 1; i >= 0; i--) {
+            YearMonth ym = current.minusMonths(i);
+            LocalDate first = ym.atDay(1);
+            LocalDate nextFirst = ym.plusMonths(1).atDay(1);
+            LocalDate last = nextFirst.minusDays(1);
+            OffsetDateTime mStart = first.atStartOfDay(JAKARTA).toOffsetDateTime();
+            OffsetDateTime mEnd = nextFirst.atStartOfDay(JAKARTA).toOffsetDateTime();
+
+            Long billed = jdbc.queryForObject(
+                    "SELECT COALESCE(SUM(base_amount - discount),0)::bigint FROM invoices " +
+                    "WHERE period_start >= ? AND period_start < ? AND status <> 'VOID'",
+                    Long.class, first, nextFirst);
+            Long collected = jdbc.queryForObject(
+                    "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ?",
+                    Long.class, mStart, mEnd);
+            Integer occupied = jdbc.queryForObject(
+                    "SELECT COUNT(*)::int FROM leases WHERE status IN ('ACTIVE','ENDED') " +
+                    "AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)",
+                    Integer.class, last, first);
+
+            pts.add(new TrendResponse.MonthPoint(ym.toString(),
+                    billed == null ? 0L : billed,
+                    collected == null ? 0L : collected,
+                    occupied == null ? 0 : occupied));
+        }
+        return new TrendResponse(pts);
+    }
+
 }

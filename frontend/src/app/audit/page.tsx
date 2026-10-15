@@ -5,7 +5,7 @@ import { Pagination, SearchBox, useListControls } from "@/components/list-contro
 import { fetchApi } from "@/lib/api";
 import { isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 type AuditEntry = {
     id: string;
@@ -17,6 +17,8 @@ type AuditEntry = {
     httpMethod: string;
     httpStatus: number;
     ip: string | null;
+    detailBefore: string | null;
+    detailAfter: string | null;
     createdAt: string;
 };
 
@@ -24,12 +26,8 @@ function formatDateTime(iso: string): string {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleString("id-ID", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
     });
 }
 
@@ -41,28 +39,12 @@ function statusColor(s: number): string {
 }
 
 function actionColor(a: string): string {
-    if (
-        a === "RECORD_PAYMENT" ||
-        a === "RECORD_ADJUSTMENT" ||
-        a === "VOID_INVOICE" ||
-        a === "DELETE_PAYMENT"
-    ) {
+    if (a === "RECORD_PAYMENT" || a === "RECORD_ADJUSTMENT" || a === "VOID_INVOICE" || a === "DELETE_PAYMENT")
         return "bg-amber-100 text-amber-800";
-    }
-    if (
-        a === "CREATE_USER" ||
-        a === "RESET_USER_PASSWORD" ||
-        a === "DEACTIVATE_USER" ||
-        a === "RESET_TENANT_PASSWORD"
-    ) {
+    if (a === "CREATE_USER" || a === "RESET_USER_PASSWORD" || a === "DEACTIVATE_USER" || a === "RESET_TENANT_PASSWORD" || a === "UPDATE_USER")
         return "bg-purple-100 text-purple-800";
-    }
-    if (a === "ARCHIVE_TENANT") {
-        return "bg-blue-100 text-blue-800";
-    }
-    if (a === "CREATE_LEASE" || a === "CHANGE_LEASE_STATUS") {
-        return "bg-green-100 text-green-800";
-    }
+    if (a === "ARCHIVE_TENANT") return "bg-blue-100 text-blue-800";
+    if (a === "CREATE_LEASE" || a === "CHANGE_LEASE_STATUS") return "bg-green-100 text-green-800";
     return "bg-gray-100 text-gray-800";
 }
 
@@ -72,6 +54,7 @@ export default function AuditPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [actionFilter, setActionFilter] = useState("SEMUA");
+    const [expanded, setExpanded] = useState<string | null>(null);
 
     const allowed = !!me && isSuperAdmin(me.roles);
 
@@ -88,30 +71,14 @@ export default function AuditPage() {
         if (authStatus === "ok" && allowed) loadData();
     }, [authStatus, allowed]);
 
-    const actionOptions = useMemo(() => {
-        const set = new Set(entries.map((e) => e.action));
-        return Array.from(set).sort();
-    }, [entries]);
+    const actionOptions = useMemo(() => Array.from(new Set(entries.map((e) => e.action))).sort(), [entries]);
 
-    const shown =
-        actionFilter === "SEMUA"
-            ? entries
-            : entries.filter((e) => e.action === actionFilter);
+    const shown = actionFilter === "SEMUA" ? entries : entries.filter((e) => e.action === actionFilter);
 
-    const { query, setQuery, page, setPage, pageCount, total, view } =
-        useListControls(shown, {
-            searchKeys: [
-                "actorUsername",
-                "actorRole",
-                "action",
-                "entityType",
-                "entityId",
-                "httpMethod",
-                "httpStatus",
-                "ip",
-            ],
-            pageSize: 20,
-        });
+    const { query, setQuery, page, setPage, pageCount, total, view } = useListControls(shown, {
+        searchKeys: ["actorUsername", "actorRole", "action", "entityType", "entityId", "httpMethod", "httpStatus", "ip"],
+        pageSize: 20,
+    });
 
     if (authStatus === "loading") {
         return (
@@ -127,9 +94,7 @@ export default function AuditPage() {
             <main className="min-h-screen bg-gray-50 p-6">
                 <div className="max-w-2xl mx-auto p-6 bg-amber-50 text-amber-800 rounded-xl border border-amber-200">
                     <p className="font-semibold">Audit log hanya untuk pemilik (SUPERADMIN).</p>
-                    <a href="/dashboard" className="underline text-blue-600 mt-2 inline-block">
-                        ← Kembali
-                    </a>
+                    <a href="/dashboard" className="underline text-blue-600 mt-2 inline-block">← Kembali</a>
                 </div>
             </main>
         );
@@ -140,40 +105,22 @@ export default function AuditPage() {
             <div className="max-w-7xl mx-auto">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
-                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">
-                            ← Dashboard
-                        </a>
+                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Audit Log</h1>
-                        <p className="text-gray-500 mt-1">
-                            Jejak aksi sensitif: siapa, kapan, ke mana, dan hasilnya.
-                        </p>
+                        <p className="text-gray-500 mt-1">Jejak aksi sensitif: siapa, kapan, ke mana, hasilnya, dan perubahan nilainya.</p>
                     </div>
-                    <button
-                        onClick={loadData}
-                        disabled={loading}
-                        className="px-5 py-3 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white rounded-xl font-semibold shadow-sm"
-                    >
+                    <button onClick={loadData} disabled={loading}
+                        className="px-5 py-3 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white rounded-xl font-semibold shadow-sm">
                         ↻ Muat Ulang
                     </button>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                    <SearchBox
-                        value={query}
-                        onChange={setQuery}
-                        placeholder="Cari aktor / aksi / entitas / IP…"
-                    />
-                    <select
-                        value={actionFilter}
-                        onChange={(e) => setActionFilter(e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
+                    <SearchBox value={query} onChange={setQuery} placeholder="Cari aktor / aksi / entitas / IP…" />
+                    <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)}
+                        className="px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-base focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="SEMUA">Semua aksi</option>
-                        {actionOptions.map((a) => (
-                            <option key={a} value={a}>
-                                {a}
-                            </option>
-                        ))}
+                        {actionOptions.map((a) => (<option key={a} value={a}>{a}</option>))}
                     </select>
                 </div>
 
@@ -193,75 +140,72 @@ export default function AuditPage() {
                                     <tr className="border-b border-gray-200 bg-gray-50 text-gray-600 uppercase tracking-wider">
                                         <th className="p-3 font-semibold">Waktu</th>
                                         <th className="p-3 font-semibold">Aktor</th>
-                                        <th className="p-3 font-semibold">Role</th>
                                         <th className="p-3 font-semibold">Aksi</th>
                                         <th className="p-3 font-semibold">Entitas</th>
-                                        <th className="p-3 font-semibold">ID</th>
                                         <th className="p-3 font-semibold">HTTP</th>
                                         <th className="p-3 font-semibold">Status</th>
+                                        <th className="p-3 font-semibold">Diff</th>
                                         <th className="p-3 font-semibold">IP</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {view.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={9} className="p-8 text-center text-gray-500">
-                                                Tidak ada hasil untuk “{query}”.
-                                            </td>
-                                        </tr>
+                                        <tr><td colSpan={8} className="p-8 text-center text-gray-500">Tidak ada hasil untuk “{query}”.</td></tr>
                                     ) : (
                                         view.map((e) => (
-                                            <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                                                <td className="p-3 text-gray-600 whitespace-nowrap">
-                                                    {formatDateTime(e.createdAt)}
-                                                </td>
-                                                <td className="p-3 font-medium text-gray-900">
-                                                    {e.actorUsername ?? "-"}
-                                                </td>
-                                                <td className="p-3 text-gray-600">
-                                                    {e.actorRole ?? "-"}
-                                                </td>
-                                                <td className="p-3">
-                                                    <span
-                                                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${actionColor(
-                                                            e.action
-                                                        )}`}
-                                                    >
-                                                        {e.action}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 text-gray-700">{e.entityType}</td>
-                                                <td className="p-3 text-gray-500 font-mono text-xs break-all">
-                                                    {e.entityId ?? "-"}
-                                                </td>
-                                                <td className="p-3 text-gray-600 font-mono">
-                                                    {e.httpMethod}
-                                                </td>
-                                                <td className="p-3">
-                                                    <span
-                                                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor(
-                                                            e.httpStatus
-                                                        )}`}
-                                                    >
-                                                        {e.httpStatus}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 text-gray-500 font-mono text-xs">
-                                                    {e.ip ?? "-"}
-                                                </td>
-                                            </tr>
+                                            <Fragment key={e.id}>
+                                                <tr className="hover:bg-gray-50 transition-colors">
+                                                    <td className="p-3 text-gray-600 whitespace-nowrap">{formatDateTime(e.createdAt)}</td>
+                                                    <td className="p-3 font-medium text-gray-900">{e.actorUsername ?? "-"}</td>
+                                                    <td className="p-3">
+                                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${actionColor(e.action)}`}>{e.action}</span>
+                                                    </td>
+                                                    <td className="p-3 text-gray-700">
+                                                        {e.entityType}
+                                                        <span className="block text-xs text-gray-400 font-mono break-all">{e.entityId ?? "-"}</span>
+                                                    </td>
+                                                    <td className="p-3 text-gray-600 font-mono">{e.httpMethod}</td>
+                                                    <td className="p-3">
+                                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor(e.httpStatus)}`}>{e.httpStatus}</span>
+                                                    </td>
+                                                    <td className="p-3">
+                                                        {(e.detailBefore || e.detailAfter) ? (
+                                                            <button
+                                                                onClick={() => setExpanded(expanded === e.id ? null : e.id)}
+                                                                className="px-2 py-1 rounded-lg text-blue-600 hover:bg-blue-50 text-xs font-medium"
+                                                            >
+                                                                {expanded === e.id ? "Tutup" : "⇄ Lihat"}
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-gray-300 text-xs">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-gray-500 font-mono text-xs">{e.ip ?? "-"}</td>
+                                                </tr>
+                                                {expanded === e.id && (
+                                                    <tr className="bg-gray-50">
+                                                        <td colSpan={8} className="p-4">
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                                                                <div>
+                                                                    <p className="font-semibold text-gray-500 mb-1">SEBELUM</p>
+                                                                    <pre className="whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-2">{e.detailBefore ?? "(tidak ada)"}</pre>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="font-semibold text-gray-500 mb-1">SESUDAH</p>
+                                                                    <pre className="whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-2">{e.detailAfter ?? "(tidak ada)"}</pre>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </Fragment>
                                         ))
                                     )}
                                 </tbody>
                             </table>
                         </div>
                         <div className="mt-4 flex justify-end">
-                            <Pagination
-                                page={page}
-                                pageCount={pageCount}
-                                onChange={setPage}
-                                total={total}
-                            />
+                            <Pagination page={page} pageCount={pageCount} onChange={setPage} total={total} />
                         </div>
                     </>
                 )}

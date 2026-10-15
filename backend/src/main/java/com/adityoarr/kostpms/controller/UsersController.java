@@ -1,6 +1,7 @@
 package com.adityoarr.kostpms.controller;
 
 import com.adityoarr.kostpms.dto.UserCreateRequest;
+import com.adityoarr.kostpms.dto.UserUpdateRequest;
 import com.adityoarr.kostpms.dto.UserResetPasswordRequest;
 import com.adityoarr.kostpms.dto.UserListItemResponse;
 import com.adityoarr.kostpms.service.UserService;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -63,4 +65,17 @@ public class UsersController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+
+    @PutMapping("/{id}")
+    public ResponseEntity<?> update(@PathVariable UUID id,
+                                     @Valid @RequestBody UserUpdateRequest req) {
+        try {
+            String actor = SecurityContextHolder.getContext().getAuthentication().getName();
+            return ResponseEntity.ok(userService.update(id, req, actor));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
 }

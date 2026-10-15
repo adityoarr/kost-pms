@@ -60,7 +60,11 @@ export default function InvoicesPage() {
             const res = await fetch(`${API_BASE_URL}/reminders/run`, { method: "POST", credentials: "include" });
             if (!res.ok) { alert(await readError(res)); return; }
             const d = await res.json();
-            setSuccessMsg(`Pengingat terkirim: ${d.dueSoonSent} menjelang jatuh tempo, ${d.overdueSent} terlambat. (${d.skipped} sudah pernah dikirim sebelumnya)`);
+            setSuccessMsg(
+                `Pengingat terkirim — dini(H-7): ${d.dueEarlySent ?? 0}, menjelang(H-3): ${d.dueSoonSent ?? 0}, ` +
+                `mendesak(H-1): ${d.dueUrgentSent ?? 0}, terlambat(H+3): ${d.overdueSent ?? 0}. ` +
+                `(${d.skipped} sudah pernah dikirim sebelumnya)`
+            );
         } catch {
             alert("Tidak bisa menghubungi server.");
         }

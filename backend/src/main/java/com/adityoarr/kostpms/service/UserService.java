@@ -1,6 +1,7 @@
 package com.adityoarr.kostpms.service;
 
 import com.adityoarr.kostpms.dto.UserCreateRequest;
+import com.adityoarr.kostpms.dto.UserUpdateRequest;
 import com.adityoarr.kostpms.dto.UserListItemResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -89,4 +90,41 @@ public class UserService {
         }
         return jdbc.update("UPDATE users SET status = 'INACTIVE' WHERE id = ?", id) > 0;
     }
+
+    public UserListItemResponse update(UUID id, UserUpdateRequest req, String actorUsername) {
+        // Guard: role harus valid & bukan SUPERADMIN (SUPERADMIN hanya via create)
+        if (!CREATABLE_ROLES.contains(req.role())) {
+            throw new IllegalArgumentException("Edit tidak boleh mengubah ke SUPERADMIN. Gunakan deactivate + create baru untuk promosi.");
+        }
+
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT username, role, status FROM users WHERE id = ?", id);
+        if (rows.isEmpty()) throw new IllegalArgumentException("User tidak ditemukan.");
+        Map<String, Object> u = rows.get(0);
+        String username = (String) u.get("username");
+        String oldRole = (String) u.get("role");
+
+        // Guard: tidak boleh edit diri sendiri
+        if (username.equals(actorUsername)) {
+            throw new IllegalArgumentException("Tidak bisa mengedit akun sendiri.");
+        }
+
+        // Guard: SUPERADMIN terakhir tidak boleh diturunkan
+        if ("SUPERADMIN".equals(oldRole) && !"SUPERADMIN".equals(req.role())) {
+            Integer active = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM users WHERE role = 'SUPERADMIN' AND status = 'ACTIVE'",
+                    Integer.class);
+            if (active != null && active <= 1) {
+                throw new IllegalArgumentException("SUPERADMIN aktif terakhir tidak boleh diturunkan. Buat SUPERADMIN baru dulu.");
+            }
+        }
+
+        jdbc.update("UPDATE users SET full_name = ?, role = ? WHERE id = ?",
+                req.fullName(), req.role(), id);
+        List<UserListItemResponse> updated = jdbc.query(
+                "SELECT id, username, full_name, role, status, created_at FROM users WHERE id = ?",
+                mapper, id);
+        return updated.get(0);
+    }
+
 }

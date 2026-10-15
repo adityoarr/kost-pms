@@ -12,5 +12,7 @@ public record AuditLogResponse(
         String httpMethod,
         int httpStatus,
         String ip,
+        String detailBefore,
+        String detailAfter,
         OffsetDateTime createdAt
 ) {}

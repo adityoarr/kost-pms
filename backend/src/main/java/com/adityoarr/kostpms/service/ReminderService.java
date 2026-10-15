@@ -2,6 +2,7 @@ package com.adityoarr.kostpms.service;
 
 import com.adityoarr.kostpms.dto.ReminderLogResponse;
 import com.adityoarr.kostpms.dto.ReminderRunResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -10,10 +11,13 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ReminderService {
@@ -24,11 +28,23 @@ public class ReminderService {
     private final JdbcTemplate jdbc;
     private final PaymentService paymentService;
     private final ReminderSender sender;
+    private final String enabledKindsRaw;
 
-    public ReminderService(JdbcTemplate jdbc, PaymentService paymentService, ReminderSender sender) {
+    public ReminderService(JdbcTemplate jdbc,
+                           PaymentService paymentService,
+                           ReminderSender sender,
+                           @Value("${app.reminder.enabled-kinds:DUE_EARLY,DUE_SOON,DUE_URGENT,OVERDUE}") String enabledKindsRaw) {
         this.jdbc = jdbc;
         this.paymentService = paymentService;
         this.sender = sender;
+        this.enabledKindsRaw = enabledKindsRaw;
+    }
+
+    private Set<String> enabledKinds() {
+        return Arrays.stream(enabledKindsRaw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
     }
 
     private static final String CANDIDATE_SQL =
@@ -57,18 +73,24 @@ public class ReminderService {
             rs.getObject("due_date", LocalDate.class)
     );
 
-    // ===== Jalankan satu putaran reminder. Idempoten via UNIQUE(invoice_id, kind). =====
     public ReminderRunResponse runReminders() {
         LocalDate today = LocalDate.now(JAKARTA);
-        int dueSoon = processWindow(today, today.plusDays(3), "DUE_SOON");
-        int overdue = processWindow(today.minusDays(90), today.minusDays(3), "OVERDUE");
-        int skipped = countAlreadyLogged(today, today.plusDays(3))
-                    + countAlreadyLogged(today.minusDays(90), today.minusDays(3));
-        return new ReminderRunResponse(dueSoon, overdue, skipped);
+        Set<String> on = enabledKinds();
+
+        int early  = on.contains("DUE_EARLY")  ? processWindow(today.plusDays(4),  today.plusDays(7), "DUE_EARLY")  : 0;
+        int soon   = on.contains("DUE_SOON")   ? processWindow(today,              today.plusDays(3), "DUE_SOON")   : 0;
+        int urgent = on.contains("DUE_URGENT") ? processWindow(today,              today.plusDays(1), "DUE_URGENT") : 0;
+        int over   = on.contains("OVERDUE")    ? processWindow(today.minusDays(90), today.minusDays(3), "OVERDUE")  : 0;
+
+        int skipped = 0;
+        if (on.contains("DUE_EARLY"))  skipped += countAlreadyLogged(today.plusDays(4),   today.plusDays(7), "DUE_EARLY");
+        if (on.contains("DUE_SOON"))   skipped += countAlreadyLogged(today,               today.plusDays(3), "DUE_SOON");
+        if (on.contains("DUE_URGENT")) skipped += countAlreadyLogged(today,               today.plusDays(1), "DUE_URGENT");
+        if (on.contains("OVERDUE"))    skipped += countAlreadyLogged(today.minusDays(90), today.minusDays(3), "OVERDUE");
+
+        return new ReminderRunResponse(early, soon, urgent, over, skipped);
     }
 
-    // Jendela [from, to] inklusif. DUE_SOON dipanggil [today, today+3];
-    // OVERDUE dipanggil [today-90, today-3] (batas bawah agar tidak menyapu tagihan purba).
     private int processWindow(LocalDate from, LocalDate to, String kind) {
         List<Map<String, Object>> rows = jdbc.queryForList(CANDIDATE_SQL, from, to);
         int sent = 0;
@@ -76,7 +98,7 @@ public class ReminderService {
             UUID invoiceId = UUID.fromString(String.valueOf(r.get("id")));
             if (alreadyLogged(invoiceId, kind)) continue;
             PaymentService.Breakdown b = paymentService.breakdownOf(invoiceId);
-            if (b.totalDue <= 0L) continue; // lunas: tidak ada yang diingatkan
+            if (b.totalDue <= 0L) continue;
             String message = buildMessage(kind, r, b.totalDue);
             sender.send(String.valueOf(r.get("tenant_phone")), String.valueOf(r.get("tenant_name")), message);
             jdbc.update(
@@ -95,11 +117,13 @@ public class ReminderService {
         return c != null && c > 0;
     }
 
-    private int countAlreadyLogged(LocalDate from, LocalDate to) {
+    // PERBAIKAN 10.5: hitung per JENIS (bukan per jendela) agar tidak double-count
+    // saat jendela antar-jenis tumpang-tindih.
+    private int countAlreadyLogged(LocalDate from, LocalDate to, String kind) {
         Integer c = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM reminder_logs r JOIN invoices i ON r.invoice_id = i.id " +
-                "WHERE i.status IN ('OPEN','PARTIALLY_PAID') AND i.due_date >= ? AND i.due_date <= ?",
-                Integer.class, from, to);
+                "WHERE r.kind = ? AND i.status IN ('OPEN','PARTIALLY_PAID') AND i.due_date >= ? AND i.due_date <= ?",
+                Integer.class, kind, from, to);
         return c == null ? 0 : c;
     }
 
@@ -109,15 +133,19 @@ public class ReminderService {
         String prop = String.valueOf(r.get("property_name"));
         LocalDate due = ((java.sql.Date) r.get("due_date")).toLocalDate();
         String rp = "Rp" + java.text.NumberFormat.getInstance(new Locale("id", "ID")).format(totalDue);
-        if ("DUE_SOON".equals(kind)) {
-            return String.format("Halo %s, tagihan Kamar %s (%s) sebesar %s akan jatuh tempo pada %s. Silakan lakukan pembayaran tepat waktu.",
-                    name, unit, prop, rp, due.format(TGL));
+        String tgl = due.format(TGL);
+        switch (kind) {
+            case "DUE_EARLY":
+                return String.format("Halo %s, pengingat dini: tagihan Kamar %s (%s) sebesar %s akan jatuh tempo pada %s. Silakan siapkan pembayaran.", name, unit, prop, rp, tgl);
+            case "DUE_URGENT":
+                return String.format("Halo %s, PERHATIAN: tagihan Kamar %s (%s) sebesar %s jatuh tempo pada %s (segera). Mohon lakukan pembayaran hari ini atau besok.", name, unit, prop, rp, tgl);
+            case "OVERDUE":
+                return String.format("Halo %s, tagihan Kamar %s (%s) sebesar %s SUDAH LEWAT jatuh tempo sejak %s. Mohon segera lakukan pembayaran untuk menghindari penumpukan denda.", name, unit, prop, rp, tgl);
+            default: // DUE_SOON
+                return String.format("Halo %s, tagihan Kamar %s (%s) sebesar %s akan jatuh tempo pada %s. Silakan lakukan pembayaran tepat waktu.", name, unit, prop, rp, tgl);
         }
-        return String.format("Halo %s, tagihan Kamar %s (%s) sebesar %s SUDAH LEWAT jatuh tempo sejak %s. Mohon segera lakukan pembayaran untuk menghindari penumpukan denda.",
-                name, unit, prop, rp, due.format(TGL));
     }
 
-    // ===== Riwayat pengingat (opsional, untuk ops/audit) =====
     public List<ReminderLogResponse> listRecent(int limit) {
         int lim = Math.min(Math.max(limit, 1), 200);
         return jdbc.query(

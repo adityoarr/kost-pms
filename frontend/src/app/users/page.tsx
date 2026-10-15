@@ -19,6 +19,7 @@ export default function UsersPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modalOpen, setModalOpen] = useState(false);
+    const [editing, setEditing] = useState<any | null>(null);
     const [successMsg, setSuccessMsg] = useState("");
 
     const { query, setQuery, page, setPage, pageCount, total, view } = useListControls(users, {
@@ -107,7 +108,7 @@ export default function UsersPage() {
                         <p className="text-gray-500 mt-1">Kelola siapa yang bisa mengakses sistem sebagai staff/admin.</p>
                     </div>
                     <button
-                        onClick={() => setModalOpen(true)}
+                        onClick={() => { setEditing(null); setModalOpen(true); }}
                         className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm"
                     >
                         + Tambah Pegawai
@@ -154,8 +155,8 @@ export default function UsersPage() {
                                             <td className="p-4">
                                                 <span
                                                     className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${u.role === "SUPERADMIN" ? "bg-purple-100 text-purple-800"
-                                                            : u.role === "ADMIN" ? "bg-blue-100 text-blue-800"
-                                                                : "bg-gray-200 text-gray-700"
+                                                        : u.role === "ADMIN" ? "bg-blue-100 text-blue-800"
+                                                            : "bg-gray-200 text-gray-700"
                                                         }`}
                                                 >
                                                     {u.role}
@@ -171,6 +172,12 @@ export default function UsersPage() {
                                             </td>
                                             <td className="p-4 text-gray-500 text-sm">{formatDate(u.createdAt)}</td>
                                             <td className="p-4 text-right whitespace-nowrap">
+                                                <button
+                                                    onClick={() => { setEditing(u); setModalOpen(true); }}
+                                                    className="px-3 py-1 rounded-lg text-blue-600 hover:bg-blue-50 font-medium text-sm"
+                                                >
+                                                    Edit
+                                                </button>
                                                 <button
                                                     onClick={() => handleResetPassword(u)}
                                                     className="px-3 py-1 rounded-lg text-amber-600 hover:bg-amber-50 font-medium text-sm"
@@ -200,7 +207,9 @@ export default function UsersPage() {
 
             {modalOpen && (
                 <UserFormModal
-                    onClose={() => setModalOpen(false)}
+                    mode={editing ? "edit" : "create"}
+                    initialData={editing ?? undefined}
+                    onClose={() => { setModalOpen(false); setEditing(null); }}
                     onSaved={(m) => {
                         setSuccessMsg(m);
                         loadData();

@@ -5,6 +5,8 @@ import { fetchApi } from "@/lib/api";
 import { formatRupiah } from "@/lib/format";
 import { isOwnerRole } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useEffect, useState } from "react";
 
 type Row = {
@@ -17,10 +19,10 @@ type Row = {
     discount: number;
     paidAmount: number;
     remaining: number;
-    lateFee: number;
-    effectiveStatus: string;
     principalRemaining: number;
+    lateFee: number;
     feeAmount: number;
+    effectiveStatus: string;
 };
 
 type PeriodReport = {
@@ -54,7 +56,12 @@ function badge(eff: string) {
     }
 }
 
-// Bangun CSV di browser (nol endpoint baru). BOM di awal agar Excel membaca UTF-8 benar.
+const rp = (n: number) => "Rp " + new Intl.NumberFormat("id-ID").format(n);
+const sisaPokok = (r: Row) => r.principalRemaining ?? r.remaining;
+const denda = (r: Row) => r.feeAmount ?? r.lateFee ?? 0;
+const totalDue = (r: Row) => sisaPokok(r) + denda(r);
+
+// ---- CSV (client-side, BOM utk Excel) ----
 function buildCsv(rep: PeriodReport): string {
     const q = (s: string | number) => `"${String(s).replace(/"/g, '""')}"`;
     const lines: string[] = [];
@@ -63,12 +70,12 @@ function buildCsv(rep: PeriodReport): string {
     lines.push(`Diterima (tercatat periode ini),${rep.collectedAmount}`);
     lines.push(`Lunas (jumlah tagihan),${rep.paidCount}`);
     lines.push(`Telat (jumlah tagihan),${rep.overdueCount}`);
-    lines.push(`Telat ( nominal sisa),${rep.overdueAmount}`);
+    lines.push(`Telat (nominal sisa),${rep.overdueAmount}`);
     lines.push(`Outstanding akhir periode,${rep.outstandingEnd}`);
     lines.push("");
     lines.push(["Penyewa", "No.HP", "Kamar", "Properti", "Ditagih", "Diskon", "Terbayar", "Sisa Pokok", "Denda", "Total Due", "Status"].map(q).join(","));
     for (const r of rep.rows) {
-        lines.push([r.tenantName, r.tenantPhone, r.unitNumber, r.propertyName, r.baseAmount, r.discount, r.paidAmount, r.principalRemaining ?? r.remaining, r.lateFee, (r.principalRemaining ?? r.remaining) + (r.lateFee || 0), r.effectiveStatus].map(q).join(","));
+        lines.push([r.tenantName, r.tenantPhone, r.unitNumber, r.propertyName, r.baseAmount, r.discount, r.paidAmount, sisaPokok(r), denda(r), totalDue(r), r.effectiveStatus].map(q).join(","));
     }
     return "\uFEFF" + lines.join("\r\n");
 }
@@ -85,6 +92,59 @@ function downloadCsv(rep: PeriodReport) {
     URL.revokeObjectURL(url);
 }
 
+// ---- PDF (client-side, jsPDF + autotable) ----
+function downloadPdf(rep: PeriodReport) {
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+
+    doc.setFontSize(16);
+    doc.text("Laporan Bulanan Kost", 40, 50);
+    doc.setFontSize(11);
+    doc.text(`Periode: ${monthTitle(rep.month)}`, 40, 70);
+    // new Date() di DALAM handler klik (bukan saat render) -> aman dari aturan nilai-tidak-stabil
+    doc.text(`Dicetak: ${new Date().toLocaleString("id-ID")}`, 40, 86);
+
+    let y = 112;
+    doc.setFontSize(10);
+    const summary = [
+        `Ditagih: ${rp(rep.billedAmount)}`,
+        `Diterima (tercatat periode ini): ${rp(rep.collectedAmount)}`,
+        `Outstanding akhir periode: ${rp(rep.outstandingEnd)}`,
+        `Lunas: ${rep.paidCount} dari ${rep.rows.length} tagihan`,
+        `Telat: ${rep.overdueCount} tagihan (${rp(rep.overdueAmount)})`,
+    ];
+    summary.forEach((s) => { doc.text(s, 40, y); y += 16; });
+
+    autoTable(doc, {
+        startY: y + 10,
+        head: [["Penyewa", "No. HP", "Kamar", "Properti", "Ditagih", "Terbayar", "Sisa Pokok", "Denda", "Total Due", "Status"]],
+        body: rep.rows.map((r) => [
+            r.tenantName,
+            r.tenantPhone,
+            r.unitNumber,
+            r.propertyName,
+            rp(r.baseAmount - r.discount),
+            rp(r.paidAmount),
+            rp(sisaPokok(r)),
+            rp(denda(r)),
+            rp(totalDue(r)),
+            r.effectiveStatus,
+        ]),
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [31, 41, 55], textColor: 255 },
+        alternateRowStyles: { fillColor: [246, 247, 249] },
+    });
+
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(140);
+        doc.text(`Halaman ${i} dari ${pageCount} - dihasilkan otomatis oleh Sistem PMS Kost`, 40, doc.internal.pageSize.getHeight() - 20);
+    }
+
+    doc.save(`laporan-kost-${rep.month}.pdf`);
+}
+
 export default function ReportsPage() {
     const { me, status: authStatus } = useAuthGuard();
     const [month, setMonth] = useState<string>("");
@@ -92,12 +152,10 @@ export default function ReportsPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
-    // Default bulan diisi setelah mount agar prerender tidak pernah melihat new Date().
-    useEffect(() => {
-        setMonth(currentMonth());
-    }, []);
-
     const allowed = !!me && isOwnerRole(me.roles);
+
+    // Default bulan diisi SETELAH mount agar prerender tidak melihat new Date().
+    useEffect(() => { setMonth(currentMonth()); }, []);
 
     function load(m: string) {
         setLoading(true);
@@ -139,46 +197,37 @@ export default function ReportsPage() {
                     <div>
                         <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Laporan Bulanan</h1>
-                        <p className="text-gray-500 mt-1">Rekap tagihan & kas per periode, siap diunduh.</p>
+                        <p className="text-gray-500 mt-1">Rekap tagihan & kas per periode, siap diunduh (CSV / PDF).</p>
                     </div>
-                    <div className="flex items-end gap-2">
+                    <div className="flex items-end gap-2 flex-wrap">
                         <div>
                             <label htmlFor="m" className="block text-xs text-gray-500 mb-1">Periode bulan</label>
-                            <input
-                                id="m"
-                                type="month"
-                                value={month}
-                                onChange={(e) => setMonth(e.target.value)}
-                                className="px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
+                            <input id="m" type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+                                className="px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                         </div>
-                        <button
-                            onClick={() => load(month)}
-                            disabled={loading}
-                            className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold"
-                        >
+                        <button onClick={() => load(month)} disabled={loading}
+                            className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold">
                             Tampilkan
                         </button>
-                        <button
-                            onClick={() => report && downloadCsv(report)}
-                            disabled={!report || loading}
-                            className="px-5 py-2 rounded-xl bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white font-semibold"
-                        >
+                        <button onClick={() => report && downloadCsv(report)} disabled={!report || loading}
+                            className="px-5 py-2 rounded-xl bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white font-semibold">
                             ⬇ Unduh CSV
+                        </button>
+                        <button onClick={() => report && downloadPdf(report)} disabled={!report || loading}
+                            className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold">
+                            ⬇ Unduh PDF
                         </button>
                     </div>
                 </div>
 
-                {error && (
-                    <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200">{error}</div>
-                )}
+                {error && (<div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200">{error}</div>)}
 
                 {loading && !report ? (
                     <div className="bg-white rounded-xl border border-gray-200 p-10 animate-pulse"></div>
                 ) : report ? (
                     <>
                         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                            <Card label={`Ditagih — ${monthTitle(report.month)}`} value={formatRupiah(report.billedAmount)} tone="gray" />
+                            <Card label={`Ditagih - ${monthTitle(report.month)}`} value={formatRupiah(report.billedAmount)} tone="gray" />
                             <Card label="Diterima (tercatat periode ini)" value={formatRupiah(report.collectedAmount)} tone="green" />
                             <Card label="Outstanding akhir periode" value={formatRupiah(report.outstandingEnd)} tone="blue" />
                             <Card label={`Lunas (${report.paidCount} tagihan)`} value={`${report.paidCount} / ${report.rows.length}`} tone="green" />
@@ -205,8 +254,9 @@ export default function ReportsPage() {
                                             <th className="p-3 font-semibold">Properti</th>
                                             <th className="p-3 font-semibold text-right">Ditagih</th>
                                             <th className="p-3 font-semibold text-right">Terbayar</th>
-                                            <th className="p-3 font-semibold text-right">Sisa</th>
+                                            <th className="p-3 font-semibold text-right">Sisa Pokok</th>
                                             <th className="p-3 font-semibold text-right">Denda</th>
+                                            <th className="p-3 font-semibold text-right">Total Due</th>
                                             <th className="p-3 font-semibold">Status</th>
                                         </tr>
                                     </thead>
@@ -221,12 +271,11 @@ export default function ReportsPage() {
                                                 <td className="p-3 text-gray-500">{r.propertyName}</td>
                                                 <td className="p-3 text-right font-mono">{formatRupiah(r.baseAmount - r.discount)}</td>
                                                 <td className="p-3 text-right font-mono text-gray-600">{formatRupiah(r.paidAmount)}</td>
-                                                <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(r.principalRemaining ?? r.remaining)}</td>
-                                                <td className="p-3 text-right font-mono text-red-600">{r.lateFee > 0 ? formatRupiah(r.lateFee) : "-"}</td>
+                                                <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(sisaPokok(r))}</td>
+                                                <td className="p-3 text-right font-mono text-red-600">{denda(r) > 0 ? formatRupiah(denda(r)) : "-"}</td>
+                                                <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(totalDue(r))}</td>
                                                 <td className="p-3">
-                                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(r.effectiveStatus)}`}>
-                                                        {r.effectiveStatus}
-                                                    </span>
+                                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badge(r.effectiveStatus)}`}>{r.effectiveStatus}</span>
                                                 </td>
                                             </tr>
                                         ))}

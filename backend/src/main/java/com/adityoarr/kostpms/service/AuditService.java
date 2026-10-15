@@ -32,12 +32,14 @@ public class AuditService {
             rs.getString("http_method"),
             rs.getInt("http_status"),
             rs.getString("ip"),
+            rs.getString("detail_before"),
+            rs.getString("detail_after"),
             rs.getObject("created_at", OffsetDateTime.class)
     );
 
-    // Actor & role dibaca dari SecurityContext (sumber tunggal), bukan dari parameter.
     public void record(String action, String entityType, String entityId,
-                       String httpMethod, int httpStatus, String ip) {
+                       String httpMethod, int httpStatus, String ip,
+                       String detailBefore, String detailAfter) {
         String actor = null;
         String role = null;
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -48,15 +50,16 @@ public class AuditService {
                     .collect(Collectors.joining(","));
         }
         jdbc.update(
-                "INSERT INTO audit_logs (id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO audit_logs (id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), actor, role, action, entityType, entityId, httpMethod, httpStatus,
-                ip == null ? null : (ip.length() > 120 ? ip.substring(0, 120) : ip));
+                ip == null ? null : (ip.length() > 120 ? ip.substring(0, 120) : ip),
+                detailBefore, detailAfter);
     }
 
     public List<AuditLogResponse> query(Integer limit, String action, String actor) {
         StringBuilder sb = new StringBuilder(
-                "SELECT id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, created_at FROM audit_logs");
+                "SELECT id, actor_username, actor_role, action, entity_type, entity_id, http_method, http_status, ip, detail_before, detail_after, created_at FROM audit_logs");
         List<Object> params = new ArrayList<>();
         List<String> conds = new ArrayList<>();
         if (action != null && !action.isBlank()) { conds.add("action = ?"); params.add(action); }
