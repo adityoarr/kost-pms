@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kost PMS Frontend — UI/UX refresh
 
-## Getting Started
+This folder contains the frontend UI refresh for Kost PMS. It is based on the uploaded frontend project and keeps the existing API calls, authentication guards, routes, role checks, forms, and business logic intact.
 
-First, run the development server:
+## Main changes
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Replaced the starter homepage with a clearer entry point for managers and tenants.
+- Updated document language to Indonesian and replaced starter metadata with Kost PMS metadata.
+- Added a consistent light SaaS visual system: calmer backgrounds, improved surface borders/shadows, typography, focus states, and form controls.
+- Improved table readability and horizontal scrolling on narrow screens.
+- Added mobile spacing/touch target adjustments and a `prefers-reduced-motion` accessibility fallback.
+- Preserved existing application routes and API integrations.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Apply locally
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Back up your current `frontend` directory.
+2. Extract this ZIP.
+3. Copy the contents of this folder into your local `frontend` directory, replacing files when prompted.
+4. From the `frontend` directory run:
+   ```bash
+   npm ci
+   npm run lint
+   npm run build
+   ```
+5. Start locally with `npm run dev` and verify API connectivity/authentication against your environment.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+No changes were made to GitHub.
 
-## Learn More
+## Notes
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Do not include `.env` files or API secrets in a shared ZIP.
+- The design refresh intentionally avoids replacing the existing backend/API behavior with mock data.
+- This environment did not have the project's dependencies installed, so build/lint validation could not be completed here. Run the commands above locally before deployment.
