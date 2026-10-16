@@ -18,14 +18,13 @@ public class ReminderScheduler {
         this.reminderService = reminderService;
     }
 
+    // Thread cron TIDAK punya SecurityContext -> wajib loop per owner via runAllOwners(),
+    // BUKAN runReminders() yang resolve context (itu akan mati senyap = bug R5).
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Jakarta")
     public void dailyReminders() {
         try {
-            var r = reminderService.runReminders();
-            log.info("[REMINDER] run harian selesai: dueSoon={} overdue={} skipped={}",
-                    r.dueSoonSent(), r.overdueSent(), r.skipped());
+            reminderService.runAllOwners();
         } catch (Exception e) {
-            // Jangan biarkan kegagalan satu putaran mematikan thread scheduler.
             log.error("[REMINDER] run harian gagal", e);
         }
     }

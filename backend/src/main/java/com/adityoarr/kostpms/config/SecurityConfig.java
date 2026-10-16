@@ -29,6 +29,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/tickets").hasRole("TENANT")
 
                 .requestMatchers("/reports/**").hasAnyRole("SUPERADMIN", "ADMIN")
+                                .requestMatchers(HttpMethod.POST, "/reminders/run-all").hasRole("SUPERADMIN")
                 .requestMatchers("/reminders/**").hasAnyRole("SUPERADMIN", "ADMIN")
 
                 .requestMatchers("/users/**").hasRole("SUPERADMIN")

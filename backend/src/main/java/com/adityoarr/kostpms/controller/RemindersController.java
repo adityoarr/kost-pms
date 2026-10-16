@@ -27,6 +27,12 @@ public class RemindersController {
         return reminderService.runReminders();
     }
 
+    @PostMapping("/run-all")
+    public ReminderRunResponse runAll() {
+        return reminderService.runAllOwners();
+    }
+
+
     @GetMapping
     public List<ReminderLogResponse> list(@RequestParam(defaultValue = "50") int limit) {
         return reminderService.listRecent(limit);

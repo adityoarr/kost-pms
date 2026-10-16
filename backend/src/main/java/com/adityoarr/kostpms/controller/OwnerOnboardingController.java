@@ -7,7 +7,11 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
@@ -27,10 +31,10 @@ public class OwnerOnboardingController {
             @NotBlank String password
     ) {}
 
-    // Onboarding = aksi platform. Hanya SUPERADMIN yang sudah login boleh.
+    // Gate: hanya SUPERADMIN yang sudah login. Anonymous & role lain ditolak.
     private boolean isPlatformSuperAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) return false;
+        if (auth == null) return false;
         return auth.getAuthorities().stream()
                 .map(a -> a.getAuthority())
                 .anyMatch(s -> s.equals("SUPERADMIN") || s.equals("ROLE_SUPERADMIN"));
@@ -39,7 +43,8 @@ public class OwnerOnboardingController {
     @PostMapping
     public ResponseEntity<?> onboard(@Valid @RequestBody OnboardRequest req) {
         if (!isPlatformSuperAdmin()) {
-            return ResponseEntity.status(403).body(Map.of("error", "Onboarding owner hanya boleh oleh SUPERADMIN yang login."));
+            return ResponseEntity.status(403)
+                    .body(Map.of("error", "Onboarding owner hanya boleh oleh SUPERADMIN yang login."));
         }
         try {
             UserListItemResponse created = onboardingService.onboardOwner(

@@ -56,13 +56,13 @@ public class LeaseService {
     public List<LeaseResponse> findAll() {
         UUID ownerId = ownerContext.getCurrentOwnerId();
         if (ownerId == null) return List.of();
-        return jdbcTemplate.query(SELECT_JOIN + "ORDER BY l.created_at DESC", mapper, ownerId, ownerId);
+        return jdbcTemplate.query(SELECT_JOIN + "ORDER BY l.created_at DESC", mapper, ownerId);
     }
 
     public LeaseResponse findById(UUID id) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
         if (ownerId == null) return null;
-        List<LeaseResponse> rows = jdbcTemplate.query(SELECT_JOIN + "AND l.id = ?", mapper, ownerId, ownerId, id);
+        List<LeaseResponse> rows = jdbcTemplate.query(SELECT_JOIN + "AND l.id = ?", mapper, ownerId, id);
         return rows.isEmpty() ? null : rows.get(0);
     }
 

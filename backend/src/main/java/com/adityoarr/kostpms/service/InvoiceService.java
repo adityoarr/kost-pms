@@ -59,7 +59,9 @@ public class InvoiceService {
             int rate = rs.getInt("late_fee_rate_percent");
             LocalDate due = rs.getObject("due_date", LocalDate.class);
             String stored = rs.getString("status");
-            PaymentService.Breakdown b = paymentService.breakdownOf(id);
+            PaymentService.Breakdown b;
+            try { b = paymentService.breakdownOf(id); }
+            catch (IllegalArgumentException voidOrMissing) { b = new PaymentService.Breakdown(0L, 0L, 0L, null); }
             String eff = effectiveStatus(stored, due);
             return new InvoiceResponse(
                     id.toString(),

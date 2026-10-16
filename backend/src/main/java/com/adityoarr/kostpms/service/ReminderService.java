@@ -2,6 +2,8 @@ package com.adityoarr.kostpms.service;
 
 import com.adityoarr.kostpms.dto.ReminderLogResponse;
 import com.adityoarr.kostpms.dto.ReminderRunResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -22,8 +24,10 @@ import java.util.stream.Collectors;
 @Service
 public class ReminderService {
 
+    private static final Logger log = LoggerFactory.getLogger(ReminderService.class);
     private static final ZoneId JAKARTA = ZoneId.of("Asia/Jakarta");
     private static final DateTimeFormatter TGL = DateTimeFormatter.ofPattern("d MMM yyyy", new Locale("id", "ID"));
+    private static final ReminderRunResponse EMPTY = new ReminderRunResponse(0, 0, 0, 0, 0);
 
     private final JdbcTemplate jdbc;
     private final PaymentService paymentService;
@@ -76,22 +80,47 @@ public class ReminderService {
             rs.getObject("due_date", LocalDate.class)
     );
 
+    // ===== Jalur HTTP (tombol 🔔): resolve ownerId dari SecurityContext, lalu delegate. =====
     public ReminderRunResponse runReminders() {
         UUID ownerId = ownerContext.getCurrentOwnerId();
-        if (ownerId == null) return new ReminderRunResponse(0, 0, 0, 0, 0);
+        if (ownerId == null) return EMPTY;
+        return runRemindersForOwner(ownerId);
+    }
+
+    // ===== Jalur platform/scheduler: loop SEMUA owner. ownerId eksplisit, bukan dari context. =====
+    public ReminderRunResponse runAllOwners() {
+        List<UUID> ownerIds = jdbc.queryForList(
+                "SELECT id FROM users WHERE role = 'SUPERADMIN' AND owner_id = id ORDER BY created_at",
+                UUID.class);
+        int e = 0, s = 0, u = 0, o = 0, sk = 0;
+        for (UUID id : ownerIds) {
+            ReminderRunResponse r = runRemindersForOwner(id);
+            e += r.dueEarlySent(); s += r.dueSoonSent(); u += r.dueUrgentSent();
+            o += r.overdueSent(); sk += r.skipped();
+            log.info("[REMINDER] owner={} dueEarly={} dueSoon={} dueUrgent={} overdue={} skipped={}",
+                    id, r.dueEarlySent(), r.dueSoonSent(), r.dueUrgentSent(), r.overdueSent(), r.skipped());
+        }
+        log.info("[REMINDER] run-all selesai: owners={} dueEarly={} dueSoon={} dueUrgent={} overdue={} skipped={}",
+                ownerIds.size(), e, s, u, o, sk);
+        return new ReminderRunResponse(e, s, u, o, sk);
+    }
+
+    // ===== Inti parametrik: dipakai KETIGA jalur. Tidak menyentuh SecurityContext. =====
+    public ReminderRunResponse runRemindersForOwner(UUID ownerId) {
+        if (ownerId == null) return EMPTY;
         LocalDate today = LocalDate.now(JAKARTA);
         Set<String> on = enabledKinds();
 
-        int early  = on.contains("DUE_EARLY")  ? processWindow(today.plusDays(4),  today.plusDays(7), "DUE_EARLY", ownerId)  : 0;
-        int soon   = on.contains("DUE_SOON")   ? processWindow(today,              today.plusDays(3), "DUE_SOON", ownerId)   : 0;
-        int urgent = on.contains("DUE_URGENT") ? processWindow(today,              today.plusDays(1), "DUE_URGENT", ownerId) : 0;
-        int over   = on.contains("OVERDUE")    ? processWindow(today.minusDays(90), today.minusDays(3), "OVERDUE", ownerId)  : 0;
+        int early  = on.contains("DUE_EARLY")  ? processWindow(today.plusDays(4),  today.plusDays(7),  "DUE_EARLY",  ownerId) : 0;
+        int soon   = on.contains("DUE_SOON")   ? processWindow(today,              today.plusDays(3),  "DUE_SOON",   ownerId) : 0;
+        int urgent = on.contains("DUE_URGENT") ? processWindow(today,              today.plusDays(1),  "DUE_URGENT", ownerId) : 0;
+        int over   = on.contains("OVERDUE")    ? processWindow(today.minusDays(90), today.minusDays(3), "OVERDUE",    ownerId) : 0;
 
         int skipped = 0;
-        if (on.contains("DUE_EARLY"))  skipped += countAlreadyLogged(today.plusDays(4),   today.plusDays(7), "DUE_EARLY", ownerId);
-        if (on.contains("DUE_SOON"))   skipped += countAlreadyLogged(today,               today.plusDays(3), "DUE_SOON", ownerId);
-        if (on.contains("DUE_URGENT")) skipped += countAlreadyLogged(today,               today.plusDays(1), "DUE_URGENT", ownerId);
-        if (on.contains("OVERDUE"))    skipped += countAlreadyLogged(today.minusDays(90), today.minusDays(3), "OVERDUE", ownerId);
+        if (on.contains("DUE_EARLY"))  skipped += countAlreadyLogged(today.plusDays(4),   today.plusDays(7),  "DUE_EARLY",  ownerId);
+        if (on.contains("DUE_SOON"))   skipped += countAlreadyLogged(today,               today.plusDays(3),  "DUE_SOON",   ownerId);
+        if (on.contains("DUE_URGENT")) skipped += countAlreadyLogged(today,               today.plusDays(1),  "DUE_URGENT", ownerId);
+        if (on.contains("OVERDUE"))    skipped += countAlreadyLogged(today.minusDays(90), today.minusDays(3), "OVERDUE",    ownerId);
 
         return new ReminderRunResponse(early, soon, urgent, over, skipped);
     }
@@ -150,6 +179,7 @@ public class ReminderService {
         }
     }
 
+    // ===== Jalur HTTP GET /reminders: resolve context (tidak berubah). =====
     public List<ReminderLogResponse> listRecent(int limit) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
         if (ownerId == null) return List.of();
