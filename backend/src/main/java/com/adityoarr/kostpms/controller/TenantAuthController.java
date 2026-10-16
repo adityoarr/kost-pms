@@ -68,12 +68,11 @@ public class TenantAuthController {
                 return ResponseEntity.status(428).body(
                         Map.<String, Object>of("needsSetup", true,
                                 "message", "Akun Anda belum memiliki password. Silakan buat password terlebih dahulu."));
+            // FIX A9: pesan disamakan agar tidak bisa dipakai menebak nomor HP yang terdaftar.
             case BAD_PASSWORD:
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Map.of("error", "Password salah. Periksa kembali."));
             case NOT_REGISTERED:
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Nomor ini belum terdaftar sebagai penyewa aktif. Hubungi pengelola kost."));
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Nomor HP atau password salah. Jika belum punya akun, hubungi pengelola kost."));
             case RATE_LIMITED:
                 return ResponseEntity.status(429)
                         .body(Map.of("error", "Terlalu banyak percobaan login. Tunggu 15 menit lalu coba lagi."));
@@ -119,6 +118,10 @@ public class TenantAuthController {
     }
 
     private void saveSession(Authentication auth, HttpServletRequest sr, HttpServletResponse ss) {
+        // FIX A8: ganti ID sesi saat login (cegah session fixation).
+        if (sr.getSession(false) != null) {
+            sr.changeSessionId();
+        }
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(auth);
         SecurityContextHolder.setContext(context);

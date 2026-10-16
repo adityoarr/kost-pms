@@ -1,9 +1,9 @@
 // src/lib/use-auth-guard.ts
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export type MeResponse = { username: string; roles: string[] };
 
@@ -18,7 +18,10 @@ function realmOf(roles: string[]): "owner" | "staff" | "tenant" {
 }
 
 // Guard untuk area OWNER (/dashboard, /properties, /tenants, dst).
-export function useAuthGuard() {
+// FIX B4: opsi allowStaff agar halaman operasional (tiket, tagihan, penyewa, kontrak)
+// yang memang diizinkan backend untuk STAFF tidak mengusir staf kembali ke /staff.
+export function useAuthGuard(options: { allowStaff?: boolean } = {}) {
+  const allowStaff = options.allowStaff ?? false;
   const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
@@ -29,7 +32,7 @@ export function useAuthGuard() {
       .then((d) => {
         if (cancelled) return;
         const realm = realmOf(d.roles);
-        if (realm === "owner") {
+        if (realm === "owner" || (allowStaff && realm === "staff")) {
           setMe(d);
           setStatus("ok");
         } else {
@@ -45,7 +48,7 @@ export function useAuthGuard() {
         }
       });
     return () => { cancelled = true; };
-  }, [router]);
+  }, [router, allowStaff]);
 
   return { me, status };
 }

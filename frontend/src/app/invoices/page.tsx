@@ -7,7 +7,7 @@ import { Pagination, SearchBox, useListControls } from "@/components/list-contro
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
 import { formatDate, formatRupiah } from "@/lib/format";
-import { isOwnerRole, isSuperAdmin } from "@/lib/roles";
+import { isOwnerRole, isStaff, isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -35,7 +35,7 @@ function monthLabel(iso: string) {
 }
 
 export default function InvoicesPage() {
-    const { me, status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard({ allowStaff: true });
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -84,7 +84,7 @@ export default function InvoicesPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
-                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
+                        <a href={me && isStaff(me.roles) ? "/staff" : "/dashboard"} className="text-sm text-blue-600 hover:underline">← {me && isStaff(me.roles) ? "Beranda Staf" : "Dashboard"}</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Tagihan & Pembayaran</h1>
                         <p className="text-gray-500 mt-1">Piutang kost Anda, per bulan, per penyewa.</p>
                     </div>

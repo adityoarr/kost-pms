@@ -5,6 +5,7 @@ import { Pagination, SearchBox, useListControls } from "@/components/list-contro
 import TicketDetailModal from "@/components/ticket-detail-modal";
 import { fetchApi } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { isStaff } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -24,7 +25,7 @@ function statusBadge(s: string) {
 }
 
 export default function TicketsPage() {
-    const { status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard({ allowStaff: true });
     const [tickets, setTickets] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -53,7 +54,7 @@ export default function TicketsPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
+                        <a href={me && isStaff(me.roles) ? "/staff" : "/dashboard"} className="text-sm text-blue-600 hover:underline">← {me && isStaff(me.roles) ? "Beranda Staf" : "Dashboard"}</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Tiket Laporan</h1>
                         <p className="text-gray-500 mt-1">Laporan dari penyewa, kelola bersama tim.</p>
                     </div>

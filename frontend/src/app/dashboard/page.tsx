@@ -3,7 +3,7 @@
 
 import { fetchApi } from "@/lib/api";
 import { formatDate, formatRupiah } from "@/lib/format";
-import { isSuperAdmin } from "@/lib/roles";
+import { isPlatformAdmin, isSuperAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -191,7 +191,7 @@ export default function DashboardPage() {
             <a href="/tickets" className={linkCls}>🎫 Tiket Laporan</a>
             <a href="/reports" className={linkCls}>📊 Laporan Bulanan</a>
             <a href="/trend" className={linkCls}>📈 Tren Multi-Bulan</a>
-            {isSuperAdmin(me.roles) && (
+            {isPlatformAdmin(me.roles) && (
               <a href="/owners" className="w-full py-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-center transition-colors shadow-sm">
                 🏢 Panel Owner (SaaS)
               </a>

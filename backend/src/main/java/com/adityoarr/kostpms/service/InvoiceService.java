@@ -42,6 +42,8 @@ public class InvoiceService {
 
     private static final String SELECT_JOIN =
             "SELECT i.id, i.lease_id, i.period_start, i.period_end, i.due_date, i.base_amount, i.discount, " +
+            // FIX A13 (N+1): total pembayaran ikut di query utama, tidak lagi 2 query tambahan per invoice.
+            "       COALESCE((SELECT SUM(pm.amount) FROM payments pm WHERE pm.invoice_id = i.id), 0) AS paid_total, " +
             "       i.late_fee_rate_percent, i.status, i.void_reason, i.created_by_username, i.created_at, " +
             "       t.name AS tenant_name, t.phone AS tenant_phone, u.unit_number, p.name AS property_name " +
             "FROM invoices i " +
@@ -60,9 +62,9 @@ public class InvoiceService {
             int rate = rs.getInt("late_fee_rate_percent");
             LocalDate due = rs.getObject("due_date", LocalDate.class);
             String stored = rs.getString("status");
-            PaymentService.Breakdown b;
-            try { b = paymentService.breakdownOf(id); }
-            catch (IllegalArgumentException voidOrMissing) { b = new PaymentService.Breakdown(0L, 0L, 0L, null); }
+            PaymentService.Breakdown b = "VOID".equals(stored)
+                    ? new PaymentService.Breakdown(0L, 0L, 0L, null)
+                    : new PaymentService.Breakdown(base - disc, rs.getLong("paid_total"), rate, due);
             String eff = effectiveStatus(stored, due);
             return new InvoiceResponse(
                     id.toString(),

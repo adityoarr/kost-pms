@@ -6,7 +6,7 @@ import TenantFormModal from "@/components/tenant-form-modal";
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
-import { isOwnerRole } from "@/lib/roles";
+import { isOwnerRole, isStaff } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -14,7 +14,7 @@ const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://api.adityoarr.com/kost/v1";
 
 export default function TenantsPage() {
-    const { me, status: authStatus } = useAuthGuard();
+    const { me, status: authStatus } = useAuthGuard({ allowStaff: true });
     const [tenants, setTenants] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -72,7 +72,7 @@ export default function TenantsPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
-                        <a href="/dashboard" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
+                        <a href={me && isStaff(me.roles) ? "/staff" : "/dashboard"} className="text-sm text-blue-600 hover:underline">← {me && isStaff(me.roles) ? "Beranda Staf" : "Dashboard"}</a>
                         <h1 className="text-3xl font-bold text-gray-900 mt-1">Penyewa</h1>
                         <p className="text-gray-500 mt-1">Data penghuni kost Anda.</p>
                     </div>

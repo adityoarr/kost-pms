@@ -1,9 +1,11 @@
 package com.adityoarr.kostpms.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -11,6 +13,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
 @Configuration
@@ -18,11 +21,15 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JdbcTemplate jdbc,
+                                                   @Value("${app.allowed-origins:}") String allowedOrigins) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login", "/owners").permitAll()
+                .requestMatchers("/", "/actuator/health", "/actuator/info", "/auth/login").permitAll()
+                // FIX A7: /owners tidak lagi permitAll; cek admin platform dilakukan di controller.
+                .requestMatchers("/owners/**").hasRole("SUPERADMIN")
                 .requestMatchers("/tenant-auth/setup-password", "/tenant-auth/login", "/tenant-auth/forgot-password", "/tenant-auth/reset-password").permitAll()
 
                 .requestMatchers("/tenant-me/**").hasRole("TENANT")
@@ -63,6 +70,10 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
             )
+            // FIX A6: tolak request ubah-data dari Origin yang tidak dikenal (pengganti CSRF token).
+            .addFilterBefore(new CsrfOriginFilter(allowedOrigins), SecurityContextHolderFilter.class)
+            // FIX A8: validasi ulang akun (aktif / role / tenant aktif) pada setiap request.
+            .addFilterAfter(new SessionRevalidationFilter(jdbc), SecurityContextHolderFilter.class)
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable());
         return http.build();

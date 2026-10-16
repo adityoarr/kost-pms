@@ -6,6 +6,7 @@ import com.adityoarr.kostpms.dto.PaymentResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -89,22 +90,27 @@ public class PaymentService {
         return new Breakdown(net, sumPaid(invoiceId), rate, due);
     }
 
-    // Helper: validasi invoice milik owner ini (via lease->tenant->owner)
-    private boolean isInvoiceOwned(UUID invoiceId) {
+    // FIX A13: validasi invoice milik owner ini (via lease->tenant->owner) SEKALIGUS mengunci barisnya
+    // (SELECT ... FOR UPDATE) sampai transaksi selesai. Dua pembayaran bersamaan pada invoice yang sama
+    // kini berjalan bergantian, sehingga cek "jumlah <= total tagihan" tidak bisa dilewati (TOCTOU/overpayment).
+    // Wajib dipanggil dari method @Transactional.
+    private void lockOwnedInvoice(UUID invoiceId) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
-        if (ownerId == null) return false;
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM invoices i " +
+        if (ownerId == null)
+            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT i.id FROM invoices i " +
                 "JOIN leases l ON i.lease_id = l.id " +
                 "JOIN tenants t ON l.tenant_id = t.id " +
-                "WHERE i.id = ? AND t.owner_id = ?",
-                Integer.class, invoiceId, ownerId);
-        return count != null && count > 0;
+                "WHERE i.id = ? AND t.owner_id = ? FOR UPDATE OF i",
+                invoiceId, ownerId);
+        if (rows.isEmpty())
+            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
     }
 
+    @Transactional
     public PaymentResponse recordPayment(UUID invoiceId, PaymentRequest req, String username) {
-        if (!isInvoiceOwned(invoiceId))
-            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
+        lockOwnedInvoice(invoiceId);
         if (!METHODS.contains(req.method()))
             throw new IllegalArgumentException("Method pembayaran harus salah satu: CASH, TRANSFER, OTHER.");
         Breakdown b = breakdownOf(invoiceId);
@@ -122,10 +128,18 @@ public class PaymentService {
         return findPayment(id);
     }
 
+    // Adjustment = pembayaran NEGATIF (koreksi/pengembalian atas pembayaran yang sudah tercatat).
+    // FIX A13: total pembayaran tercatat tidak boleh menjadi negatif; sebelumnya adjustment tanpa batas
+    // membuat sisa tagihan melebihi nilai tagihan.
+    @Transactional
     public PaymentResponse recordAdjustment(UUID invoiceId, AdjustmentRequest req, String username) {
-        if (!isInvoiceOwned(invoiceId))
-            throw new IllegalArgumentException("Tagihan tidak ditemukan atau bukan milik Anda.");
-        breakdownOf(invoiceId);
+        lockOwnedInvoice(invoiceId);
+        Breakdown cur = breakdownOf(invoiceId);
+        if (cur.paidTotal + req.amount() < 0L) {
+            throw new IllegalArgumentException(
+                    "Adjustment melebihi total pembayaran tercatat (Rp " + cur.paidTotal + "). " +
+                    "Untuk tagihan yang belum dibayar, gunakan fitur batalkan (void).");
+        }
         UUID ownerId = ownerContext.getCurrentOwnerId();
         UUID id = UUID.randomUUID();
         jdbc.update(
@@ -136,11 +150,12 @@ public class PaymentService {
         return findPayment(id);
     }
 
+    @Transactional
     public boolean deletePayment(UUID paymentId) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
         if (ownerId == null) return false;
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT p.invoice_id FROM payments p " +
+                "SELECT p.invoice_id, p.amount FROM payments p " +
                 "JOIN invoices i ON p.invoice_id = i.id " +
                 "JOIN leases l ON i.lease_id = l.id " +
                 "JOIN tenants t ON l.tenant_id = t.id " +
@@ -148,6 +163,16 @@ public class PaymentService {
                 paymentId, ownerId);
         if (rows.isEmpty()) return false;
         UUID invoiceId = UUID.fromString(String.valueOf(rows.get(0).get("invoice_id")));
+        long amount = ((Number) rows.get(0).get("amount")).longValue();
+        lockOwnedInvoice(invoiceId);
+        // FIX A13: penghapusan tidak boleh membuat total pembayaran negatif, atau (saat menghapus
+        // adjustment negatif) melonjak melewati nilai tagihan / total yang sudah pernah tercatat.
+        Breakdown cur = breakdownOf(invoiceId);
+        long after = cur.paidTotal - amount;
+        if (after < 0L)
+            throw new IllegalArgumentException("Tidak bisa dihapus: total pembayaran akan negatif. Hapus adjustment terkait terlebih dahulu.");
+        if (amount < 0L && after > Math.max(cur.netPrincipal, cur.paidTotal))
+            throw new IllegalArgumentException("Tidak bisa dihapus: total pembayaran akan melebihi nilai tagihan.");
         jdbc.update("DELETE FROM payments WHERE id = ?", paymentId);
         recompute(invoiceId);
         return true;

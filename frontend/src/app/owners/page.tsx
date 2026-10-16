@@ -6,7 +6,7 @@ import OwnerOnboardModal from "@/components/owner-onboard-modal";
 import { fetchApi } from "@/lib/api";
 import { readError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
-import { isSuperAdmin } from "@/lib/roles";
+import { isPlatformAdmin } from "@/lib/roles";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useEffect, useState } from "react";
 
@@ -29,7 +29,7 @@ export default function OwnersPage() {
     const [successMsg, setSuccessMsg] = useState("");
     const [running, setRunning] = useState(false);
 
-    const allowed = !!me && isSuperAdmin(me.roles);
+    const allowed = !!me && isPlatformAdmin(me.roles);
 
     function loadData() {
         setLoading(true);
@@ -79,7 +79,7 @@ export default function OwnersPage() {
         return (
             <main className="min-h-screen bg-gray-50 p-6">
                 <div className="max-w-2xl mx-auto p-6 bg-amber-50 text-amber-800 rounded-xl border border-amber-200">
-                    <p className="font-semibold">Panel owner hanya untuk SUPERADMIN (platform admin).</p>
+                    <p className="font-semibold">Panel owner hanya untuk admin platform.</p>
                     <a href="/dashboard" className="underline text-blue-600 mt-2 inline-block">← Kembali</a>
                 </div>
             </main>

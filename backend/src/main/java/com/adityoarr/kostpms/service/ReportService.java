@@ -178,10 +178,17 @@ public class ReportService {
             Long collected = jdbc.queryForObject(
                     "SELECT COALESCE(SUM(amount),0)::bigint FROM payments WHERE paid_at >= ? AND paid_at < ? AND owner_id = ?",
                     Long.class, mStart, mEnd, ownerId);
+            // FIX A14: kontrak ENDED sebelumnya terhitung terisi selamanya (end_date tidak pernah diisi
+            // saat kontrak ditutup, yang tercatat hanya terminated_at). Sekarang:
+            //  - ACTIVE  : masih menempati kamar (sampai ditutup manual, sama seperti status unit);
+            //  - ENDED   : menempati sampai tanggal terminated_at (zona Asia/Jakarta);
+            // dihitung per kamar (DISTINCT unit_id) agar pergantian penghuni dalam satu bulan tidak ganda.
             Integer occupied = jdbc.queryForObject(
-                    "SELECT COUNT(*)::int FROM leases WHERE status IN ('ACTIVE','ENDED') " +
-                    "AND start_date <= ? AND (end_date IS NULL OR end_date >= ?) AND owner_id = ?",
-                    Integer.class, last, first, ownerId);
+                    "SELECT COUNT(DISTINCT unit_id)::int FROM leases " +
+                    "WHERE status IN ('ACTIVE','ENDED') AND start_date <= ? AND owner_id = ? " +
+                    "AND (status = 'ACTIVE' " +
+                    "     OR COALESCE((terminated_at AT TIME ZONE 'Asia/Jakarta')::date, end_date, start_date) >= ?)",
+                    Integer.class, last, ownerId, first);
 
             pts.add(new TrendResponse.MonthPoint(ym.toString(),
                     billed == null ? 0L : billed,

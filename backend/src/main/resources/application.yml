@@ -51,3 +51,7 @@ app:
     cron: "0 1 0 1 * *"   # tiap tanggal 1 jam 00:01 Asia/Jakarta
     due-day: 5            # jatuh tempo = tanggal 5 pada bulan periode
     late-fee-percent: 5   # denda = 5% dari sisa tagihan saat OVERDUE
+  # FIX A6: origin frontend yang boleh melakukan POST/PUT/DELETE (dipisah koma).
+  allowed-origins: ${APP_ALLOWED_ORIGINS:https://kost.adityoarr.com,http://localhost:3000}
+  # FIX A7: username SUPERADMIN yang menjadi admin platform (panel Owner/SaaS).
+  platform-admin-username: ${PLATFORM_ADMIN_USERNAME:owner}
