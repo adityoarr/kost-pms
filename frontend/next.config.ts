@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  // FIX B2: halaman reset/lupa password tenant ada di /tenants/*, sementara link di
+  // halaman login tenant & email backend memakai /tenant/*. Query string (?token=) ikut diteruskan.
+  async redirects() {
+    return [
+      { source: "/tenant/forgot-password", destination: "/tenants/forgot-password", permanent: false },
+      { source: "/tenant/reset-password", destination: "/tenants/reset-password", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

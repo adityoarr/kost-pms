@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
+
 @Component
 public class BootstrapAdmin implements CommandLineRunner {
 
@@ -31,13 +33,19 @@ public class BootstrapAdmin implements CommandLineRunner {
         if (count != null && count > 0) {
             return;
         }
+        // FIX A1: sejak V17 kolom users.owner_id NOT NULL. Owner pertama adalah
+        // "root" organisasinya sendiri, jadi owner_id = id (sama seperti OwnerOnboardingService).
+        UUID userId = UUID.randomUUID();
         jdbcTemplate.update(
-                "INSERT INTO users (username, full_name, password_hash, role, status) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO users (id, username, full_name, password_hash, role, status, owner_id) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                userId,
                 "owner",
                 "Pemilik Kost (Superadmin)",
                 passwordEncoder.encode(bootstrapPassword),
                 "SUPERADMIN",
-                "ACTIVE"
+                "ACTIVE",
+                userId
         );
         System.out.println("== BOOTSTRAP: superadmin 'owner' berhasil dibuat ==");
     }

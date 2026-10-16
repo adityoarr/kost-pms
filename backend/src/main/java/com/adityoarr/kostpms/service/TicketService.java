@@ -114,6 +114,18 @@ public class TicketService {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    // FIX B5: tenant membuka ulang tiket MILIKNYA yang sudah RESOLVED.
+    // Return null jika tiket tidak ada / bukan milik tenant / belum RESOLVED.
+    public TicketResponse reopenByTenant(UUID ticketId, UUID tenantId) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
+        int n = jdbc.update(
+                "UPDATE tickets SET status = 'OPEN', resolved_at = NULL, updated_at = now() " +
+                "WHERE id = ? AND tenant_id = ? AND owner_id = ? AND status = 'RESOLVED'",
+                ticketId, tenantId, ownerId);
+        return n > 0 ? findById(ticketId) : null;
+    }
+
     public TicketResponse update(UUID id, TicketUpdateRequest req) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
         if (ownerId == null) return null;

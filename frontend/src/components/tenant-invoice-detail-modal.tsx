@@ -57,8 +57,8 @@ export default function TenantInvoiceDetailModal({ invoiceId, onClose }: Props) 
                             <Info label="Jatuh Tempo" value={formatDate(inv.dueDate)} />
                             <Info label="Tarif" value={formatRupiah(inv.baseAmount)} />
                             <Info label="Terbayar" value={formatRupiah(inv.paidAmount)} />
-                            <Info label="Sisa" value={formatRupiah(inv.remaining)} />
-                            <Info label="Denda" value={inv.lateFee > 0 ? formatRupiah(inv.lateFee) : "-"} />
+                            <Info label="Sisa" value={formatRupiah(inv.principalRemaining ?? inv.remaining ?? 0)} />
+                            <Info label="Denda" value={(inv.feeAmount ?? inv.lateFee ?? 0) > 0 ? formatRupiah(inv.feeAmount ?? inv.lateFee) : "-"} />
                             <div className="col-span-2">
                                 <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full ${badge(inv.effectiveStatus)}`}>
                                     {inv.effectiveStatus}

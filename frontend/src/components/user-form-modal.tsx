@@ -20,6 +20,7 @@ export default function UserFormModal({ mode, initialData, onClose, onSaved }: P
     const [fullName, setFullName] = useState(initialData?.fullName ?? "");
     const [role, setRole] = useState(initialData?.role ?? "STAFF");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
 
@@ -30,8 +31,8 @@ export default function UserFormModal({ mode, initialData, onClose, onSaved }: P
             setError("Semua field wajib diisi.");
             return;
         }
-        if (!isEdit && password.length < 8) {
-            setError("Password minimal 8 karakter.");
+        if (!isEdit && !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+            setError("Password minimal 8 karakter dan harus mengandung huruf serta angka.");
             return;
         }
         setSubmitting(true);
@@ -83,6 +84,9 @@ export default function UserFormModal({ mode, initialData, onClose, onSaved }: P
                         <input
                             type="text"
                             value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            autoComplete="off"
+                            maxLength={50}
                             readOnly={isEdit}
                             disabled={isEdit}
                             className={`w-full text-lg px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${isEdit ? "bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed" : "border-gray-300"}`}
@@ -117,14 +121,24 @@ export default function UserFormModal({ mode, initialData, onClose, onSaved }: P
                     {!isEdit && (
                         <div>
                             <label className="block text-base font-semibold text-gray-800 mb-1">Password Awal *</label>
-                            <input
-                                type="text"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                                placeholder="min. 8 karakter, huruf+angka"
-                                required
-                            />
+                            <div className="flex gap-2">
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    autoComplete="new-password"
+                                    className="w-full text-lg px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    placeholder="min. 8 karakter, huruf+angka"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword((v) => !v)}
+                                    className="px-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200"
+                                >
+                                    {showPassword ? "Sembunyi" : "Lihat"}
+                                </button>
+                            </div>
                             <p className="text-xs text-gray-400 mt-1">Sampaikan password ini ke pegawai untuk login pertama.</p>
                         </div>
                     )}

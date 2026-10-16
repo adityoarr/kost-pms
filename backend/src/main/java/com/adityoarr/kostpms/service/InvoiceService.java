@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -86,8 +87,17 @@ public class InvoiceService {
         }
     };
 
+    // Jalur request (user login): owner diambil dari SecurityContext.
     public Map<String, Object> generate(YearMonth period, String username) {
         UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
+        return generateForOwner(period, username, ownerId);
+    }
+
+    // FIX A3: jalur parametrik (tanpa SecurityContext) untuk scheduler / backfill startup.
+    // Transaksional + ON CONFLICT DO NOTHING agar aman dari race pada unique (lease_id, period_start).
+    @Transactional
+    public Map<String, Object> generateForOwner(YearMonth period, String username, UUID ownerId) {
         if (ownerId == null) throw new IllegalStateException("Owner context tidak tersedia.");
         LocalDate start = period.atDay(1);
         LocalDate end = period.atEndOfMonth();
@@ -101,16 +111,13 @@ public class InvoiceService {
         int created = 0, skipped = 0;
         for (Map<String, Object> lease : leases) {
             Object leaseId = lease.get("id");
-            Integer exists = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM invoices WHERE lease_id = ? AND period_start = ?",
-                    Integer.class, leaseId, start);
-            if (exists != null && exists > 0) { skipped++; continue; }
-            jdbc.update(
+            int inserted = jdbc.update(
                     "INSERT INTO invoices (id, lease_id, period_start, period_end, due_date, base_amount, discount, late_fee_rate_percent, status, created_by_username, owner_id) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?, ?) " +
+                    "ON CONFLICT (lease_id, period_start) DO NOTHING",
                     UUID.randomUUID(), leaseId, start, end, due,
                     ((Number) lease.get("monthly_rate")).longValue(), lateFeePercent, username, ownerId);
-            created++;
+            if (inserted > 0) created++; else skipped++;
         }
         return Map.of("period", period.toString(), "created", created, "skipped", skipped);
     }

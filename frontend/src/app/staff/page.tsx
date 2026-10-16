@@ -1,13 +1,13 @@
 // src/app/staff/page.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { fetchApi } from "@/lib/api";
-import { useStaffGuard } from "@/lib/use-staff-guard";
-import { formatDate, formatRupiah } from "@/lib/format";
-import TicketDetailModal from "@/components/ticket-detail-modal";
 import PaymentFormModal from "@/components/payment-form-modal";
+import TicketDetailModal from "@/components/ticket-detail-modal";
+import { fetchApi } from "@/lib/api";
+import { formatDate, formatRupiah } from "@/lib/format";
+import { useStaffGuard } from "@/lib/use-staff-guard";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 function statusBadge(s: string) {
   switch (s) {
@@ -40,7 +40,7 @@ export default function StaffPage() {
     setLoading(true);
     Promise.all([fetchApi<any[]>("/tickets"), fetchApi<any[]>("/invoices")])
       .then(([t, i]) => { setTickets(t); setInvoices(i); })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
@@ -52,7 +52,7 @@ export default function StaffPage() {
   }, [msg]);
 
   async function handleLogout() {
-    try { await fetchApi("/auth/logout", { method: "POST" }); } catch {}
+    try { await fetchApi("/auth/logout", { method: "POST" }); } catch { }
     router.replace("/login");
   }
 
@@ -75,7 +75,7 @@ export default function StaffPage() {
   const allOpen = tickets.filter((t) => t.status === "OPEN" || t.status === "IN_PROGRESS");
   // Tagihan perlu perhatian: telat dulu, lalu belum bayar/dicicil.
   const attention = invoices
-    .filter((i) => i.status !== "PAID" && i.status !== "VOID" && i.remaining > 0)
+    .filter((i) => i.status !== "PAID" && i.status !== "VOID" && (i.totalDue ?? i.principalRemaining ?? i.remaining ?? 0) > 0)
     .sort((a, b) => (a.effectiveStatus === "OVERDUE" ? -1 : 1) - (b.effectiveStatus === "OVERDUE" ? -1 : 1) || new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
     .slice(0, 8);
 
@@ -155,7 +155,7 @@ export default function StaffPage() {
                           <td className="p-3 font-medium text-gray-900">{i.tenantName}</td>
                           <td className="p-3 text-gray-600">Kamar {i.unitNumber}</td>
                           <td className="p-3 text-gray-600">{formatDate(i.dueDate)}</td>
-                          <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(i.remaining)}</td>
+                          <td className="p-3 text-right font-mono text-gray-900">{formatRupiah(i.principalRemaining ?? i.remaining ?? 0)}</td>
                           <td className="p-3"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${invBadge(i.effectiveStatus)}`}>{i.effectiveStatus}</span></td>
                           <td className="p-3 text-right">
                             <button onClick={() => setPayInvoice(i)} className="px-3 py-1 rounded-lg text-blue-600 hover:bg-blue-50 font-medium">Catat</button>

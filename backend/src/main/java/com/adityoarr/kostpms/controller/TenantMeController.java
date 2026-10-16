@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -74,5 +75,13 @@ public class TenantMeController {
     @GetMapping("/tickets")
     public List<TicketResponse> tickets() {
         return ticketService.findByTenant(UUID.fromString(currentTenantId()));
+    }
+
+    // FIX B5: tenant membuka ulang tiket miliknya (sebelumnya memakai PUT /tickets/{id} -> 403).
+    @PostMapping("/tickets/{id}/reopen")
+    public ResponseEntity<?> reopenTicket(@PathVariable UUID id) {
+        TicketResponse t = ticketService.reopenByTenant(id, UUID.fromString(currentTenantId()));
+        return t == null ? ResponseEntity.status(404).body(java.util.Map.of(
+                "error", "Tiket tidak ditemukan atau belum berstatus RESOLVED.")) : ResponseEntity.ok(t);
     }
 }

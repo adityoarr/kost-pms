@@ -13,28 +13,34 @@ import java.util.UUID;
 public class PaymentInfoService {
 
     private final JdbcTemplate jdbc;
+    private final OwnerContextService ownerContext;
 
-    public PaymentInfoService(JdbcTemplate jdbc) {
+    public PaymentInfoService(JdbcTemplate jdbc, OwnerContextService ownerContext) {
         this.jdbc = jdbc;
+        this.ownerContext = ownerContext;
     }
 
     // Owner membaca info pembayaran satu properti (untuk pre-fill form).
-    // Return null HANYA jika properti tidak ada; jika ada tapi belum diisi, field = null.
+    // Return null jika properti tidak ada ATAU bukan milik organisasi pemanggil (FIX A4).
     public PaymentInfoResponse getForProperty(UUID propertyId) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return null;
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT name, payment_bank, payment_account_number, payment_account_holder, payment_notes " +
-                "FROM properties WHERE id = ?", propertyId);
+                "FROM properties WHERE id = ? AND owner_id = ?", propertyId, ownerId);
         if (rows.isEmpty()) return null;
         return toResponse(rows.get(0));
     }
 
-    // Owner memperbarui info pembayaran. Return false jika properti tidak ada.
+    // Owner memperbarui info pembayaran. Return false jika properti tidak ada / bukan milik owner (FIX A4).
     public boolean updateForProperty(UUID propertyId, PaymentInfoRequest req) {
+        UUID ownerId = ownerContext.getCurrentOwnerId();
+        if (ownerId == null) return false;
         int updated = jdbc.update(
                 "UPDATE properties SET payment_bank=?, payment_account_number=?, payment_account_holder=?, payment_notes=?, updated_at=now() " +
-                "WHERE id = ?",
+                "WHERE id = ? AND owner_id = ?",
                 blankToNull(req.bank()), blankToNull(req.accountNumber()),
-                blankToNull(req.accountHolder()), blankToNull(req.notes()), propertyId);
+                blankToNull(req.accountHolder()), blankToNull(req.notes()), propertyId, ownerId);
         return updated > 0;
     }
 

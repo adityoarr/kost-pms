@@ -74,9 +74,9 @@ export default function TenantDashboardPage() {
     async function handleReopen(ticket: any) {
         if (!window.confirm("Buka ulang tiket ini?")) return;
         try {
-            const res = await fetch(`${API_BASE_URL}/tickets/${ticket.id}`, {
-                method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include",
-                body: JSON.stringify({ status: "OPEN" }),
+            // FIX B5: tenant tidak punya akses PUT /tickets/**; pakai endpoint khusus tenant.
+            const res = await fetch(`${API_BASE_URL}/tenant-me/tickets/${ticket.id}/reopen`, {
+                method: "POST", credentials: "include",
             });
             if (res.ok) { setSuccessMsg("Tiket dibuka ulang ✅"); fetchApi<any[]>("/tenant-me/tickets").then(setTickets); }
             else alert(await readError(res));

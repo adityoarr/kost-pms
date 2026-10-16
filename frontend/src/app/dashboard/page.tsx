@@ -165,7 +165,7 @@ export default function DashboardPage() {
                           Kamar {i.unitNumber} <span className="text-xs text-gray-400">({i.propertyName})</span>
                         </td>
                         <td className="p-4 text-red-600 text-sm">{formatDate(i.dueDate)}</td>
-                        <td className="p-4 text-right font-mono text-gray-900">{formatRupiah(i.remaining)}</td>
+                        <td className="p-4 text-right font-mono text-gray-900">{formatRupiah(i.principalRemaining ?? i.remaining ?? 0)}</td>
                       </tr>
                     ))}
                   </tbody>

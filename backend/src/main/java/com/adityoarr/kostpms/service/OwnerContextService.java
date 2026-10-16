@@ -20,11 +20,10 @@ public class OwnerContextService {
 
     /**
      * Ambil owner_id dari current user.
-     * Untuk SUPERADMIN/ADMIN/STAFF: return owner_id mereka sendiri (atau null jika belum di-set).
-     * Untuk TENANT: return owner_id dari tenant mereka.
-     * 
-     * Di fase 11.2a, semua user punya owner_id = user SUPERADMIN pertama (backfill).
-     * Di fase 11.2d (onboarding owner baru), owner_id akan berbeda per owner.
+     * - SUPERADMIN/ADMIN/STAFF: principal = username -> owner_id dari tabel users.
+     * - TENANT: principal = UUID tenant (lihat TenantAuthController.buildAuth)
+     *   -> owner_id dari tabel tenants.
+     * Return null jika tidak ada sesi (mis. thread scheduler).
      */
     public UUID getCurrentOwnerId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -32,30 +31,34 @@ public class OwnerContextService {
             return null;
         }
 
-        String username = auth.getName();
-        String roles = auth.getAuthorities().stream()
-                .map(a -> a.getAuthority())
-                .reduce("", (a, b) -> a + "," + b);
-
-        // Cari user di tabel users
-        List<Map<String, Object>> userRows = jdbc.queryForList(
-                "SELECT id, owner_id FROM users WHERE username = ?", username);
-        
-        if (!userRows.isEmpty()) {
-            // Ini owner/staff/admin user
-            Object ownerId = userRows.get(0).get("owner_id");
-            return ownerId != null ? UUID.fromString(String.valueOf(ownerId)) : null;
+        String name = auth.getName();
+        if (name == null || name.isBlank()) {
+            return null;
         }
 
-        // Kalau bukan di users, cek apakah ini tenant (phone number)
-        List<Map<String, Object>> tenantRows = jdbc.queryForList(
-                "SELECT owner_id FROM tenants WHERE phone = ?", username);
-        if (!tenantRows.isEmpty()) {
+        boolean isTenant = auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_TENANT".equals(a.getAuthority()));
+
+        if (isTenant) {
+            // FIX A2: sesi tenant memakai UUID tenant sebagai principal, bukan nomor HP.
+            UUID tenantId;
+            try {
+                tenantId = UUID.fromString(name);
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+            List<Map<String, Object>> tenantRows = jdbc.queryForList(
+                    "SELECT owner_id FROM tenants WHERE id = ?", tenantId);
+            if (tenantRows.isEmpty()) return null;
             Object ownerId = tenantRows.get(0).get("owner_id");
             return ownerId != null ? UUID.fromString(String.valueOf(ownerId)) : null;
         }
 
-        return null;
+        List<Map<String, Object>> userRows = jdbc.queryForList(
+                "SELECT owner_id FROM users WHERE username = ?", name);
+        if (userRows.isEmpty()) return null;
+        Object ownerId = userRows.get(0).get("owner_id");
+        return ownerId != null ? UUID.fromString(String.valueOf(ownerId)) : null;
     }
 
     /**
