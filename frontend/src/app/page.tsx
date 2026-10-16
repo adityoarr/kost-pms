@@ -1,4 +1,5 @@
 import ApiStatusCard from "@/components/api-status-card";
+import CurrentYear from "@/components/current-year";
 import { Suspense } from "react";
 
 export default function Home() {
@@ -70,7 +71,7 @@ export default function Home() {
         </section>
 
         <footer className="mt-6 flex flex-col items-center justify-between gap-2 text-xs text-gray-400 sm:flex-row">
-          <span>© {new Date().getFullYear()} Kost PMS</span>
+          <span>© <CurrentYear /> Kost PMS</span>
           <span>Simple, clear, and focused on daily operations.</span>
         </footer>
       </div>

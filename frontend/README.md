@@ -31,3 +31,8 @@ No changes were made to GitHub.
 - Do not include `.env` files or API secrets in a shared ZIP.
 - The design refresh intentionally avoids replacing the existing backend/API behavior with mock data.
 - This environment did not have the project's dependencies installed, so build/lint validation could not be completed here. Run the commands above locally before deployment.
+
+
+## Vercel build fix
+
+The homepage copyright year is rendered by `src/components/current-year.tsx` on the client after hydration. This avoids evaluating `new Date()` while Next.js prerenders the `/` route with Cache Components enabled.
